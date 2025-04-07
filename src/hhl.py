@@ -183,12 +183,15 @@ class HHL:
         return None
 
     def compute_pauli_decomposition(self) -> None:
+        if self.verbose > 2:
+            print('Start to compute Pauli decomposition')
         pd = qml.pauli_decompose(self.A_hermitian, pauli=False, hide_identity=False)
         self.pauli_decomposition_coeffs = pd.coeffs
         self.pauli_decomposition_paulis = []
         for op in pd.ops:
             self.pauli_decomposition_paulis.append(''.join(c for c in str(op) if c.isupper()))
-        
+        if self.verbose > 2:
+            print('Finished to compute Pauli decomposition')
         return None
     
     def _pauliword_to_matrix(self, pauliword:str) -> np.ndarray:
@@ -318,7 +321,10 @@ class HHL:
     
         s_operations_paulis, operations_paulis_names = self._construct_string_register_operations_paulis()
         s_hhl_complete += s_operations_paulis + '\n'
-    
+
+        if self.verbose > 2:
+            print('Finished _construct_string_register_operations_paulis')
+
         s_hhl_complete += '@cudaq.kernel\n'
         s_hhl_complete += 'def hhl():\n'
         s_hhl_complete += '    qbit_a = cudaq.qubit()\n'
@@ -333,7 +339,10 @@ class HHL:
         
         s_initialization_b_register = self._construct_string_kernel_initialize_b_register()
         s_hhl_complete += s_initialization_b_register + '\n'
-    
+
+        if self.verbose > 2:
+            print('Finished _construct_string_kernel_initialize_b_register')
+
         s_hhl_complete += '\n'
         s_hhl_complete += '    ####################\n'
         s_hhl_complete += '    # init c register\n'
@@ -352,7 +361,10 @@ class HHL:
         s_hhl_complete += s_hamiltonian_simulation_time_step_pauli + '\n'
         #s_hhl_complete += '    h(qvec_b)\n'
         #s_hhl_complete += '    h(qvec_c)\n'
-    
+
+        if self.verbose > 2:
+            print('Finished _construct_string_kernel_hamiltonian_simulation_timesteps_paulis')
+
         s_hhl_complete += '\n'
         s_hhl_complete += '    ####################\n'
         s_hhl_complete += '    # apply qft as part of qpe\n'
@@ -362,6 +374,8 @@ class HHL:
         s_qft = self.construct_string_kernel_qft()
         s_hhl_complete += s_qft + '\n'
     
+        if self.verbose > 2:
+            print('Finished construct_string_kernel_qft')
     
         s_hhl_complete += '\n'
         s_hhl_complete += '    ####################\n'
@@ -372,7 +386,8 @@ class HHL:
         s_ancilla_rotation = self._construct_string_kernel_ancilla_rotation()
         s_hhl_complete += s_ancilla_rotation + '\n'
     
-    
+        if self.verbose > 2:
+            print('Finished _construct_string_kernel_ancilla_rotation')
     
     
         s_hhl_complete += '\n'
@@ -384,7 +399,9 @@ class HHL:
         s_qft_dagger = self._construct_string_kernel_qft_dagger()
         s_hhl_complete += s_qft_dagger + '\n'
     
-    
+        if self.verbose > 2:
+            print('Finished _construct_string_kernel_qft_dagger')
+
         s_hhl_complete += '\n'
         s_hhl_complete += '    ####################\n'
         s_hhl_complete += '    # apply hamiltonian simulation dagger as part of qpe_dagger\n'
@@ -394,6 +411,9 @@ class HHL:
         s_hamiltonian_simulation_time_step_pauli_dagger = self._construct_string_kernel_hamiltonian_simulation_timesteps_paulis_dagger()
         s_hhl_complete += s_hamiltonian_simulation_time_step_pauli_dagger + '\n'
         
+        if self.verbose > 2:
+            print('Finished _construct_string_kernel_hamiltonian_simulation_timesteps_paulis_dagger')
+
     
         s_hhl_complete += '\n'
         s_hhl_complete += '    ####################\n'
@@ -423,7 +443,7 @@ class HHL:
 
         return None
     
-    def write_and_import_kernel_hhl_complete(self, remove_file_after_import:bool=False) -> None:
+    def write_and_import_kernel_hhl_complete(self, remove_file_after_import:bool=True) -> None:
         unique_str = uuid.uuid4()
         filepath = 'tmp'
         filename = f'kernel_hhl_complete_from_class_{unique_str}.py'
@@ -441,10 +461,21 @@ class HHL:
         #from tmp import kernel_hhl_complete_from_class
         #exec(f'from tmp import {filename[:-3]} as kernel_hhl_complete_from_class')
 
+        if self.verbose > 2:
+            print('Imported kernel as module')
+
         self.kernel_hhl_complete = cudaq.PyKernelDecorator.from_json(module.hhl.to_json())
-    
+
+        if self.verbose > 2:
+            print('Created kernel from module')
+
         if remove_file_after_import:
             path.unlink()
+            path_pycache = pathlib.Path(filepath, '__pycache__')
+            for p in list(path_pycache.glob(filename.split('.')[0] + '*')):
+                # list should be of length one
+                p.unlink()
+
         
         return None
     
@@ -466,14 +497,18 @@ class HHL:
     
     def sample_async(self, **kwargs) -> None:
         '''kwargs are passed to cudaq.sample(kernel, **kwargs)'''
-        
+        if self.verbose > 2:
+            print('Set cudaq target')
         cudaq.set_target(self.cudaq_target, option=self.cudaq_target_option)
         if kwargs.get('shots_count', None) is None:
             self.samples_shots_count = 1000
         else:
             self.samples_shots_count = kwargs['shots_count']
-        
+        if self.verbose > 2:
+            print('Start sample_async')
         self.samples = cudaq.sample_async(self.kernel_hhl_complete, **kwargs)
+        if self.verbose > 2:
+            print('Finished sample_async')
         return None
     
     def get_state(self, **kwargs) -> cudaq.State:
@@ -497,6 +532,8 @@ class HHL:
     def create_samples_dict_ordered_be_and_reduced_b_be(self) -> None:
         assert self.samples is not None, 'need to sample before ordering samples'
         #sampled_bitstrings_be = list([k for k,_ in self.samples.items()])
+        if self.verbose > 0:
+            print('Create samples_dict_orig')
         samples_dict_orig = {k:v for k,v in self.samples.items()}
         if self.verbose > 0:
             print('Create samples_dict_ordered_be')

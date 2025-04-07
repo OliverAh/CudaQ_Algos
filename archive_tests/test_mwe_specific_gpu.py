@@ -8,7 +8,7 @@ def kernel():
     h(q)
     #cx(q[0], q[1])
 
-shots_count = int(1e6)
+shots_count = int(1e9)
 
 # The following line fails with the error: "TypeError: sample() got an unexpected keyword argument 'qpu_id'"
 #print(cudaq.sample(kernel, shots_count=shots_count, qpu_id=3))
@@ -17,5 +17,5 @@ shots_count = int(1e6)
 print(cudaq.sample(kernel, shots_count=shots_count))
 
 # The following line works, and respects the qpu_id argument, but is asynchronous.
-samples_async = cudaq.sample_async(kernel, shots_count=shots_count, qpu_id=3)
-print(samples_async.get())
+#samples_async = cudaq.sample_async(kernel, shots_count=shots_count, qpu_id=3)
+#print(samples_async.get())

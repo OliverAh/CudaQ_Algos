@@ -1,5 +1,5 @@
 cuda_version=12.8 # set this variable to version 11.x (where x >= 8) or 12.x
-micromamba create -y -n cudaq python=3.11 pip numpy scipy matplotlib tqdm pandas
+micromamba create -y -n cudaq python=3.11 pip numpy scipy matplotlib tqdm pandas optuna
 micromamba install -y -n cudaq -c "nvidia/label/cuda-${cuda_version}" cuda
 micromamba install -y -n cudaq -c conda-forge mpi4py openmpi cxx-compiler
 export OMPI_MCA_opal_cuda_support=true OMPI_MCA_btl='^openib'
