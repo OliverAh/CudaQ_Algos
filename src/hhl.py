@@ -541,7 +541,7 @@ class HHL:
         self.samples_dict_ordered_be = samples_dict_ordered_be
         if self.verbose > 0:
             print('Create samples_dict_ordered_reduced_b_be')
-        samples_dict_ordered_reduced_b_be = {bs: sum([val for key, val in samples_dict_ordered_be.items() if key.endswith(bs)]) for bs in tqdm.tqdm(self.bit_strings_big_endian_qvector_b, disable=not self.verbose > 0)}
+        samples_dict_ordered_reduced_b_be = {bs: sum([val for key, val in samples_dict_ordered_be.items() if key.endswith(bs) and key[0]=='1']) for bs in tqdm.tqdm(self.bit_strings_big_endian_qvector_b, disable=not self.verbose > 0)}
         if self.verbose > 0:
             print('Finished creating samples_dict_ordered_reduced_b_be:\n', samples_dict_ordered_reduced_b_be)
         self.samples_dict_ordered_reduced_b_be = samples_dict_ordered_reduced_b_be
