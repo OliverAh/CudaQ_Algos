@@ -1,5 +1,13 @@
-# manually added files and dirs
+###################
+# start: manually added files and dirs
+###################
 **/tmp/**/*
+**/*.sif
+# to keep the "empty" tmp directories in the repo, see https://stackoverflow.com/questions/4250063/how-to-gitignore-all-files-folder-in-a-folder-but-not-the-folder-itself
+!**/.gitkeep
+###################
+# end: manually added files and dirs
+###################
 
 
 
