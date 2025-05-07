@@ -56,8 +56,12 @@ qsvt_state_internal = qsvt_state_internal[0][:4]
 qsvt_state_internal /= np.linalg.norm(qsvt_state_internal)
 with np.printoptions(precision=3, linewidth=200):
     print(qsvt_state_internal.T)
-    
 
+print(qml.draw(qsvt_instance.circuit_pennylane, decimals=2, show_all_wires=True)())
+    
+qsvt_instance.construct_string_qsvt_complete()
+
+qsvt_instance.write_kernel_qsvt_complete()
 
 # qsvt_instance.construct_string_qsvt_complete()
 # qsvt_instance.write_and_import_kernel_qsvt_complete()

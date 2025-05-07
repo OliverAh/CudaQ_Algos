@@ -1,1 +1,0 @@
-apptainer build ./tmp/nvcr_cudaq_0_10_0_cuda_12.sif docker://nvcr.io/nvidia/quantum/cuda-quantum:cu12-0.10.0

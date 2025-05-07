@@ -1,12 +1,12 @@
-#import cudaq
+import cudaq
 import numpy as np
 import scipy
 import scipy.linalg
 import matplotlib.pyplot as plt
-#import pennylane as qml
-#import pyqsp
+import pennylane as qml
+import pyqsp
 import pathlib
-#import tqdm
+import tqdm
 import uuid
 import importlib.util
 
@@ -207,7 +207,6 @@ class QSVT:
         self.log_system_size_block_encoded = int(np.log2(self.A_block_encoded_unitary.shape[0]))
         self.qvector_ancilla_size = 1
         self.qvector_b_size = self.log_system_size_block_encoded
-        print('self.qvector_b_size', self.qvector_b_size)
         
         num_qubits = self.qvector_ancilla_size + self.qvector_b_size
         self.num_qubits = num_qubits
@@ -239,7 +238,6 @@ class QSVT:
         return None
 
     def construct_qsvt_circuit_pennylane(self) -> None:
-        import pennylane as qml
         angles = self.angles_poly_oneoverx
         
         def qsvt(self, angles):
@@ -252,11 +250,11 @@ class QSVT:
         @qml.qnode(qml.device("default.qubit", wires=range(self.num_qubits)))
         def qsvt_run():
             qml.StatePrep(self.b.T/np.linalg.norm(self.b), range(self.log_system_size_block_encoded+1 - int(np.log2(self.system_size)), self.log_system_size_block_encoded+1))
-            ## qml.Identity(wires=[0,1,2,3])#0is ancilla qubit
+        #    qml.Identity(wires=[0,1,2,3])#0is ancilla qubit
             qml.Hadamard(wires=[0])
             qml.ctrl(qsvt, control=(0,), control_values=(0,))(self, angles)
             qml.ctrl(qml.adjoint(qsvt), control=(0,), control_values=(1,))(self, angles)
-            
+
             qml.Hadamard(wires=[0])
 
             return qml.state()
@@ -326,8 +324,7 @@ class QSVT:
         num_qubits_a = self.log_system_size_block_encoded
         
         
-        #for qc in range(self.qvector_b_size):
-        for qc in range(1):
+        for qc in range(self.qvector_clock_size):
             _ops_name = 'Block_A'
             ops_names.append(_ops_name)
             s += 'cudaq.register_operation(\''+_ops_name   +'\', np.array(' + np.array2string(a.astype(    np.complex128).flatten(),precision=16,floatmode='maxprec',formatter={'complex_kind': lambda x: f'{x:.16e}'},separator=',').replace('\n', '') + ', dtype=np.complex128))\n'
@@ -341,22 +338,15 @@ class QSVT:
         s = ''
         ops_names = []
         _angles = self.angles_poly_oneoverx
-        len_int_angles = len(str(len(_angles)))
         num_qubits_A = self.log_system_size_block_encoded
         for i in range(len(_angles)):
-            projector = np.zeros(self.A_block_encoded_unitary.shape, dtype=np.complex128)
-            #projector[:self.system_size, :self.system_size] = np.exp( 1j * _angles[i])
-            #projector[self.system_size:, self.system_size:] = np.exp(-1j * _angles[i])
-            projector[:self.system_size, :self.system_size] = np.diag(np.ones(self.system_size) * np.exp( 1j * _angles[i]))
-            projector[self.system_size:, self.system_size:] = np.diag(np.ones(self.system_size) * np.exp(-1j * _angles[i]))
-            # for j in range(self.system_size):
-                # projector[j, j] = np.exp( 1j * _angles[i])
-                # projector[j + self.system_size, j + self.system_size] = np.exp(-1j * _angles[i])
-
-
+            projector = np.zeros_like(self.A_block_encoded_unitary)
+            projector[:self.system_size, :self.system_size] = np.exp( 1j * _angles[i])
+            projector[self.system_size:, self.system_size:] = np.exp(-1j * _angles[i])
+            
             projector_adj = projector.conjugate().transpose()
             
-            _ops_name = 'pi__'+'{:0{l}d}'.format(i, l=len_int_angles)
+            _ops_name = 'pi__'+'{:.2f}'.format(_angles[i])
             ops_names.append(_ops_name)
             s += 'cudaq.register_operation(\''+_ops_name   +'\', np.array(' + np.array2string(projector.astype(    np.complex128).flatten(),precision=16,floatmode='maxprec',formatter={'complex_kind': lambda x: f'{x:.16e}'},separator=',').replace('\n', '') + ', dtype=np.complex128))\n'
             adj_ops_name = 'adj_'+_ops_name
@@ -368,41 +358,33 @@ class QSVT:
 
     def _construct_string_kernel_initialize_b_register_all_ones_sysem_size_4(self) -> str:
         s = ''
-        # s += '    h(qvec_b[0])\n'
-        # s += '    x(qvec_b[1])\n'
-        # s += '    x.ctrl(qvec_b[0], qvec_b[1])  # CNOT gate applied with qb[0] as control\n'
-        # s += '    ry(np.pi, qvec_b[0])\n'
-        # s += '    ry(np.pi, qvec_b[1])\n'
-        s += '    h(qvec_b[1])\n'
-        s += '    h(qvec_b[2])\n'
-        s += '    x.ctrl(qvec_b[1], qvec_b[2])  # CNOT gate applied with qb[0] as control\n'
-        
+        s += '    h(qvec_b[0])\n'
+        s += '    x(qvec_b[1])\n'
+        s += '    x.ctrl(qvec_b[0], qvec_b[1])  # CNOT gate applied with qb[0] as control\n'
+        s += '    ry(np.pi, qvec_b[0])\n'
+        s += '    ry(np.pi, qvec_b[1])\n'
         return s
     
     def _construct_string_kernel_qsvt(self) -> str:
         s = ''
-        _angles = self.angles_poly_oneoverx
+        _angles = self.self.angles_poly_oneoverx
         qubits_applied = list(range(self.qvector_b_size))
-        qubits_applied_str = ''.join([', qvec_b['+str(i)+']' for i in qubits_applied])
-        s += '    '+'h(qvec_a[0])\n'
-        s += '    '+'x(qvec_a[0])\n'# control value should be 0
-        len_int_angles = len(str(len(_angles)))
-        _ops_name = 'pi__'+'{:0{l}d}'.format(0, l=len_int_angles)
-        s += '    '+_ops_name+'.ctrl(qvec_a[0]'+ qubits_applied_str + ')\n'
-        for i in range(1, len(_angles)):
-            _ops_name = 'pi__'+'{:0{l}d}'.format(i, l=len_int_angles)
-            s += '    '+'Block_A'+'.ctrl(qvec_a[0]'+ qubits_applied_str + ')\n'
-            s += '    '+_ops_name+'.ctrl(qvec_a[0]'+ qubits_applied_str + ')\n'
         
-        s += '    '+'x(qvec_a[0])\n'
+        s += '    '+'h(qvec_a[0])'
+        
+        _ops_name = 'pi__'+'{:.2f}'.format(_angles[0])
+        s += '    '+_ops_name+'.ctrl(!qvec_a[0], qvec_c'+str(qubits_applied)+ ')\n'
+        for i in range(1, len(_angles)):
+            _ops_name = 'pi__'+'{:.2f}'.format(_angles[i])
+            s += '    '+'Block_A'+'.ctrl(!qvec_a[0], qvec_c'+str(qubits_applied)+ ')\n'
+            s += '    '+_ops_name+'.ctrl(!qvec_a[0], qvec_c'+str(qubits_applied)+ ')\n'
         
         for i in range(len(_angles)-1, 0, -1):
-            _ops_name = 'adj_'+'pi__'+'{:0{l}d}'.format(i, l=len_int_angles)
-            s += '    '+_ops_name+'.ctrl(qvec_a[0]'+ qubits_applied_str + ')\n'# not inverted?
-            s += '    '+'adj_Block_A'+'.ctrl(qvec_a[0]'+ qubits_applied_str + ')\n'
-        _ops_name = 'adj_'+'pi__'+'{:0{l}d}'.format(0, l=len_int_angles)
-        s += '    '+_ops_name+'.ctrl(qvec_a[0]'+ qubits_applied_str + ')\n'
-        
+            _ops_name = 'adj_'+'pi__'+'{:.2f}'.format(_angles[i])
+            s += '    '+'adj_Block_A'+'.ctrl(!qvec_a[0], qvec_c'+str(qubits_applied)+ ')\n'
+            s += '    '+_ops_name+'.ctrl(qvec_a[0], qvec_c'+str(qubits_applied)+ ')\n'
+        _ops_name = 'adj_'+'pi__'+'{:.2f}'.format(_angles[-1])
+        s += '    '+_ops_name+'.ctrl(!qvec_a[0], qvec_c'+str(qubits_applied)+ ')\n'
         
         s += '    '+'h(qvec_a[0])'
         return s
@@ -431,7 +413,7 @@ class QSVT:
 
         s_qsvt_complete += '@cudaq.kernel\n'
         s_qsvt_complete += 'def qsvt():\n'
-        s_qsvt_complete += '    qvec_a = cudaq.qvector('+str(self.qvector_ancilla_size)+')\n'
+        s_qsvt_complete += '    qbit_a = cudaq.qubit()\n'
         s_qsvt_complete += '    qvec_b = cudaq.qvector('+str(self.qvector_b_size)+')\n'
     
         s_qsvt_complete += '\n'
@@ -455,7 +437,9 @@ class QSVT:
     
         s_qsvt = self._construct_string_kernel_qsvt()
         s_qsvt_complete += s_qsvt + '\n'
-        
+        #s_qsvt_complete += '    h(qvec_b)\n'
+        #s_qsvt_complete += '    h(qvec_c)\n'
+
         if self.verbose > 2:
             print('Finished _construct_string_kernel_qsvt')
 
@@ -471,15 +455,15 @@ class QSVT:
                 s_qsvt_complete += '    mz('+qr+')\n'
         else:
             pass
-        #s_qsvt_complete += '    mz(qvector)\n'
-        #s_qsvt_complete += '    mz(qvec_b)\n'
+        #s_qsvt_complete += '    mz(qbit_a)\n'
+        #s_qsvt_complete += '    mz(qvec_c)\n'
         #s_qsvt_complete += '    mz(qvec_b)\n'
     
         self.string_kernel_qsvt_complete = s_qsvt_complete
 
         return None
     
-    def write_kernel_qsvt_complete(self) -> None:
+    def write_and_import_kernel_qsvt_complete(self, remove_file_after_import:bool=True) -> None:
         unique_str = uuid.uuid4()
         filepath = 'tmp'
         filename = f'kernel_qsvt_complete_from_class_{unique_str}.py'
@@ -489,18 +473,7 @@ class QSVT:
             print('Wrote kernel to:', path)
         with open (path, 'w') as f:
             f.write(self.string_kernel_qsvt_complete)
-            self.filepath_kernel_qsvt_complete = filepath
-            self.filename_kernel_qsvt_complete = filename
-            self.filenamepath_kernel_qsvt_complete = path
-        return
-    
-    def import_kernel_qsvt_complete(self, remove_file_after_import:bool=True, filepath=None, filename:str=None) -> None:
-        import cudaq
-        filepath = self.filepath_kernel_qsvt_complete if filepath is None else filepath
-        filename = self.filename_kernel_qsvt_complete if filename is None else filename
-        path = pathlib.Path(filepath, filename)
-        if self.verbose > 0:
-            print('Importing kernel from:', path)
+
         spec = importlib.util.spec_from_file_location('kernel_qsvt_complete_from_class', path)
         module = importlib.util.module_from_spec(spec)
         sys.modules['kernel_qsvt_complete_from_class'] = module
@@ -526,51 +499,13 @@ class QSVT:
         
         return None
     
-    # def write_and_import_kernel_qsvt_complete(self, remove_file_after_import:bool=True) -> None:
-    #     unique_str = uuid.uuid4()
-    #     filepath = 'tmp'
-    #     filename = f'kernel_qsvt_complete_from_class_{unique_str}.py'
-    #     filename = filename.replace('-', '_')
-    #     path = pathlib.Path(filepath, filename)
-    #     if self.verbose > 0:
-    #         print('Wrote kernel to:', path)
-    #     with open (path, 'w') as f:
-    #         f.write(self.string_kernel_qsvt_complete)
-
-    #     spec = importlib.util.spec_from_file_location('kernel_qsvt_complete_from_class', path)
-    #     module = importlib.util.module_from_spec(spec)
-    #     sys.modules['kernel_qsvt_complete_from_class'] = module
-    #     spec.loader.exec_module(module)
-    #     #from tmp import kernel_qsvt_complete_from_class
-    #     #exec(f'from tmp import {filename[:-3]} as kernel_qsvt_complete_from_class')
-
-    #     if self.verbose > 2:
-    #         print('Imported kernel as module')
-
-    #     self.kernel_qsvt_complete = cudaq.PyKernelDecorator.from_json(module.qsvt.to_json())
-
-    #     if self.verbose > 2:
-    #         print('Created kernel from module')
-
-    #     if remove_file_after_import:
-    #         path.unlink()
-    #         path_pycache = pathlib.Path(filepath, '__pycache__')
-    #         for p in list(path_pycache.glob(filename.split('.')[0] + '*')):
-    #             # list should be of length one
-    #             p.unlink()
-
-        
-    #     return None
-    
     def draw(self) -> str:
-        import cudaq
         self.circuit_string = cudaq.draw(self.kernel_qsvt_complete)
         return self.circuit_string
     
-    def sample(self, **kwargs):# -> cudaq.SampleResult:
+    def sample(self, **kwargs) -> cudaq.SampleResult:
         '''kwargs are passed to cudaq.sample(kernel, **kwargs)'''
         
-        import cudaq
         cudaq.set_target(self.cudaq_target, option=self.cudaq_target_option)
         if kwargs.get('shots_count', None) is None:
             self.samples_shots_count = 1000
@@ -582,7 +517,6 @@ class QSVT:
     
     def sample_async(self, **kwargs) -> None:
         '''kwargs are passed to cudaq.sample(kernel, **kwargs)'''
-        import cudaq
         if self.verbose > 2:
             print('Set cudaq target')
         cudaq.set_target(self.cudaq_target, option=self.cudaq_target_option)
@@ -597,19 +531,17 @@ class QSVT:
             print('Finished sample_async')
         return None
     
-    def get_state(self, **kwargs):# -> cudaq.State:
+    def get_state(self, **kwargs) -> cudaq.State:
         '''kwargs are passed to cudaq.get_state(kernel, **kwargs)'''
-        import cudaq
         cudaq.set_target(self.cudaq_target, option=self.cudaq_target_option)
-        #for meas in ['mz', 'mx', 'my']:
-        #    if meas in self.string_kernel_qsvt_complete:
-        #        raise ValueError('Measurement in kernel_qsvt_complete is not allowed, when requesting the quantum state')
+        for meas in ['mz', 'mx', 'my']:
+            if meas in self.string_kernel_qsvt_complete:
+                raise ValueError('Measurement in kernel_qsvt_complete is not allowed, when requesting the quantum state')
         self.quantum_state = cudaq.get_state(self.kernel_qsvt_complete, **kwargs)
         return self.quantum_state
     
     def get_state_async(self, **kwargs) -> None:
         '''kwargs are passed to cudaq.get_state(kernel, **kwargs)'''
-        import cudaq
         cudaq.set_target(self.cudaq_target, option=self.cudaq_target_option)
         for meas in ['mz', 'mx', 'my']:
             if meas in self.string_kernel_qsvt_complete:
@@ -618,7 +550,6 @@ class QSVT:
         return None
     
     def create_samples_dict_ordered_be_and_reduced_b_be(self) -> None:
-        import tqdm
         assert self.samples is not None, 'need to sample before ordering samples'
         #sampled_bitstrings_be = list([k for k,_ in self.samples.items()])
         if self.verbose > 0:
@@ -637,7 +568,6 @@ class QSVT:
         return None
     
     def create_quantum_state_amplitudes_dict_ordered_be(self) -> None:
-        import tqdm
         assert self.quantum_state is not None, 'need to get_state before ordering state amplitudes'
         if self.verbose > 0:
             print('Create state_amplitudes_dict_ordered_be')

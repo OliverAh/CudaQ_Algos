@@ -1,0 +1,40 @@
+#name: Qiskit
+#channels:
+#  - conda-forge
+#dependencies:
+#  - python==3.12
+#  - pip
+#  - pip:
+#    - ipykernel
+#    - numpy
+#    - scipy
+#    - matplotlib
+#    - qiskit==1.4.2
+#    - pylatexenc
+#    - qiskit-aer
+#    - qiskit-ibm-runtime
+#  - pip:
+#    - qiskit-aer-gpu
+
+# qiskit v2.0 is not compatible with qiskit-aer-gpu
+
+name: cudaq_Pre
+channels:
+  - conda-forge
+dependencies:
+  - python==3.12
+  - pip
+  - pip:
+    - numpy
+    - scipy
+    - matplotlib
+    - tqdm
+    - pyqsp
+    - qiskit
+    - qiskit-aer
+    - qiskit-ibm-runtime
+    - pennylane
+    - pennylane-qiskit==0.40.1
+    - pennylane-lightning-gpu
+    - pennylane-catalyst
+    - pylatexenc

@@ -1,0 +1,6 @@
+Bootstrap: localimage
+From: ./tmp/nvcr_cudaq_0_10_0_cuda_12.sif
+
+%post -c /bin/bash
+    echo "hello from inside container"
+    python3 -m pip --no-cache-dir install tqdm pyqsp pennylane
