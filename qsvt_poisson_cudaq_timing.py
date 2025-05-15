@@ -1,15 +1,15 @@
 ##################################################################
 ###
-### This is intended to be executed in the apptainer container build using ./container/build_apptainer_sif.sh
-### All necessary packages are installed in "base" environment of the container, so no activateion of the environment is needed.
+### This is intended to be executed in the apptainer container built using ./container/build_apptainer_sif.sh
+### All necessary packages are installed in "base" environment of the container, so no activation of an environment is needed.
 ###
-### The container is based on nvidias cudaq conainer and then adds some pip packages such as pennylane, pyqsp, etc.
+### The container is based on nvidias cudaq container and then adds some pip packages such as pennylane, pyqsp, etc.
 ###
 ##################################################################
 
 
 
-#import cudaq
+import cudaq
 import sys
 import pathlib
 sys.path.append(str(pathlib.Path(__file__).parent))
@@ -86,34 +86,25 @@ qsvt_instance.write_kernel_qsvt_complete()
 ##########
 
 
-qsvt_instance.import_kernel_qsvt_complete(remove_file_after_import=False)#, filepath='tmp', filename='kernel_qsvt_complete_from_class_281fafdc_da07_4a6c_8e6b_43c9aa1e20d5.py')
-
+qsvt_instance.import_kernel_qsvt_complete(remove_file_after_import=False)#, filepath='tmp', filename='kernel_qsvt_complete_from_class_c9f5e4c5_1327_448d_9983_d784994ca5e4.py')
+qsvt_instance.compile_kernel_qsvt_complete()
 
 #qsvt_instance.draw()
 #print(qsvt_instance.circuit_string)
 
-#bit_strings_of_interest = ['0000', '0010', '0001','0011']
-#samples = qsvt_instance.sample(shots_count=int(1e6))
-#samples_dict = {key: val/qsvt_instance.samples_shots_count for key, val in samples.items()}
-#samples_dict = {key: val for key, val in samples_dict.items() if key in bit_strings_of_interest}
-#samples_dict = {key: np.sqrt(val) for key, val in samples_dict.items()}
-#samples_dict = {key: val/np.linalg.norm(list(samples_dict.values())) for key, val in samples_dict.items()}
-#print('Samples:', {key: samples_dict[key] for key in bit_strings_of_interest})
-
-qsvt_instance.sample(shots_count=int(1e6))
-qsvt_instance.create_samples_dict_ordered_be_and_reduced_b_be()
-#bit_strings_of_interest_qvector_b = ['00', '10', '01','11']
-samples_dict_int = {key: val/qsvt_instance.samples_shots_count for key, val in qsvt_instance.samples_dict_ordered_reduced_b_be.items()}
-#samples_dict_int = {key: val for key, val in samples_dict_int.items() if key in bit_strings_of_interest_qvector_b}
-samples_dict_int = {key: np.sqrt(val) for key, val in samples_dict_int.items()}
-samples_dict_int = {key: val/np.linalg.norm(list(samples_dict_int.values())) for key, val in samples_dict_int.items()}
-print('Samples b register:', samples_dict_int)
-#samples.dump()
+bit_strings_of_interest = ['0000', '0010', '0001','0011']
+samples = qsvt_instance.sample(shots_count=int(1e6))
+samples_dict = {key: val/qsvt_instance.samples_shots_count for key, val in samples.items()}
+samples_dict = {key: val for key, val in samples_dict.items() if key in bit_strings_of_interest}
+samples_dict = {key: np.sqrt(val) for key, val in samples_dict.items()}
+samples_dict = {key: val/np.linalg.norm(list(samples_dict.values())) for key, val in samples_dict.items()}
+print('Samples:', {key: samples_dict[key] for key in bit_strings_of_interest})
+samples.clear()
+cudaq.reset_target()
 
 #print(qsvt_instance.bit_strings_big_endian_all)
 state = qsvt_instance.get_state()
 #print('State:', state)
-bit_strings_of_interest = ['0000', '0010', '0001','0011']
 state = state.amplitudes(bit_strings_of_interest)
 print('State:', state/np.linalg.norm(state))
 

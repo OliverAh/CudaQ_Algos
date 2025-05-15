@@ -1,3 +1,5 @@
+# Bootstrap: docker
+# From: nvcr.io/nvidia/quantum/cuda-quantum:cu12-0.10.0
 Bootstrap: localimage
 From: ./tmp/nvcr_cudaq_0_10_0_cuda_12.sif
 
