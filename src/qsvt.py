@@ -92,7 +92,8 @@ class QSVT:
         for i in range(1,size-1):
             A[i,i-1:i+2] = tmp
         b = np.ones((size,1))
-
+        b = np.array([[1.],[0.],[1.],[0.]])# equvalent to h(qvec_b[1]), I(qvec_b[2]) for Pennylane and CudaQ
+        b = np.array([[1.],[1.],[0.],[0.]])# equvalent to I(qvec_b[1]), h(qvec_b[2]) for Pennylane and CudaQ
         return (A, b, alpha)
     
     def _compute_eigendecomposition(self, a:np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -202,12 +203,26 @@ class QSVT:
         # Done building M
         ###
 
+        ###
+        # Check unitarity of M
+        ###
+
+        if not np.allclose(np.eye(A_block_encoded.shape[0]), A_block_encoded.conjugate().transpose() @ A_block_encoded):
+            print('Block encoding failed, not unitary, test 1')
+            sys.exit(0)
+        if not np.allclose(np.eye(A_block_encoded.shape[0]), A_block_encoded @ A_block_encoded.conjugate().transpose()):
+            print('Block encoding failed, not unitary, test 2')
+            sys.exit(0)
+
         self.A_block_encoded_unitary = A_block_encoded
         self.A_block_encoded_unitary_scale = A_unitary_scale
 
         self.b_block_encoded_normalized = np.zeros((2*self.b.shape[0], 1), dtype=self.b.dtype)
         self.b_block_encoded_normalized[:self.b.shape[0]] = self.b
         self.b_block_encoded_normalized /= np.linalg.norm(self.b_block_encoded_normalized)
+
+        print('A_block_encoded_unitary:\n', self.A_block_encoded_unitary)
+        print('b_block_encoded_normalized:\n', self.b_block_encoded_normalized)
 
         return None
 
@@ -255,16 +270,24 @@ class QSVT:
         def qsvt(self, angles):
             wires=range(1, self.log_system_size_block_encoded+1) # qubit 0 will be control 
             qml.PCPhase(angles[0], dim=self.system_size, wires=wires)
+            #qml.BlockEncode(self.A, wires=wires)
+            #with np.printoptions(precision=3, linewidth=200):
+            #    print(qml.PCPhase.compute_matrix(angles[0], [4, 8]))
             for i in range(1,len(angles)):
                 qml.BlockEncode(self.A, wires=wires)
                 qml.PCPhase(angles[i], dim=self.system_size, wires=wires)
     
         @qml.qnode(qml.device(pennylane_device, wires=range(self.num_qubits)))
         def qsvt_run():
-            qml.StatePrep(self.b.T/np.linalg.norm(self.b), range(self.log_system_size_block_encoded+1 - int(np.log2(self.system_size)), self.log_system_size_block_encoded+1))
-            ## qml.Identity(wires=[0,1,2,3])#0is ancilla qubit
+            #qml.StatePrep(self.b.T/np.linalg.norm(self.b), range(self.log_system_size_block_encoded+1 - int(np.log2(self.system_size)), self.log_system_size_block_encoded+1))
+            #b_tmp = np.array([[1.], [1.]])
+            #qml.StatePrep(b_tmp.T/np.linalg.norm(b_tmp), 2)
+            qml.Hadamard(wires=[3])
             qml.Hadamard(wires=[0])
+            #qsvt(self, angles)
+            #qml.X(wires=[0])
             qml.ctrl(qsvt, control=(0,), control_values=(0,))(self, angles)
+            #qml.ctrl(qsvt, control=(0,), control_values=(0,))(self, angles)
             qml.ctrl(qml.adjoint(qsvt), control=(0,), control_values=(1,))(self, angles)
             
             qml.Hadamard(wires=[0])
@@ -275,6 +298,26 @@ class QSVT:
 
         return None
 
+    def _convert_biglittle_endian_unitary(self, unitary: np.ndarray) -> np.ndarray:
+        """
+        Converts the unitary matrix of a multiqubit gate from little endian to big endian notation and vice versa.
+
+        Args:
+            unitary: A numpy array of a unitary matrix in either little or big endian notation
+
+        Returns:
+            A numpy array representing the unitary matrix in big or little endian notation
+
+        Notes:
+            For additional information see https://quantumcomputing.stackexchange.com/questions/26899/how-to-convert-between-little-big-endian-unitary-forms-in-braket
+        """
+        qubit_count = int(np.log2(unitary.shape[0]))
+        U_tensor = unitary.reshape([2] * 2 * qubit_count)
+        input = list(reversed(range(qubit_count)))
+        output = [i + qubit_count for i in input]
+        biglittle_endian_tensor = np.einsum(U_tensor, input + output)
+        return biglittle_endian_tensor.reshape([2 ** qubit_count, 2 ** qubit_count])
+
     def _construct_string_register_operation_A_block_encoded(self) -> Tuple[str, List[str]]:
         '''Constructs the string to register operations of the blockencoded matrix A_block_encoded_unitary.
         As the matrix is unitary already, it can be applied as a gate itself. 
@@ -284,6 +327,7 @@ class QSVT:
         ops_names = []
         
         a = self.A_block_encoded_unitary
+        a = self._convert_biglittle_endian_unitary(a)
         a_adj = a.conjugate().transpose()
         num_qubits_a = self.log_system_size_block_encoded
         
@@ -313,6 +357,8 @@ class QSVT:
             projector[:self.system_size, :self.system_size] = np.diag(np.ones(self.system_size) * np.exp( 1j * _angles[i]))
             projector[self.system_size:, self.system_size:] = np.diag(np.ones(self.system_size) * np.exp(-1j * _angles[i]))
             
+            projector = self._convert_biglittle_endian_unitary(projector)
+
             projector_adj = projector.conjugate().transpose()
             
             _ops_name = 'pi_'+'{:0{l}d}'.format(i, l=len_int_angles)
@@ -330,9 +376,12 @@ class QSVT:
         This is only valid for a constant vector b, i.e. all elements are the same.
         '''
         s = ''
-        for i in range(int(np.log2(self.system_size))):
-            q = i+1
-            s += f'    h(qvec_b[{q}])\n'    
+        #s = '    swap(qvec_b[0], qvec_b[1])\n'
+        #s += f'    x(qvec_b[{0}])\n'
+        #for i in range(int(np.log2(self.system_size))):
+        for i in range(1):
+            q = i+1+1
+            s += f'    h(qvec_b[{q}])\n'
         
         return s
     
@@ -348,16 +397,32 @@ class QSVT:
         
         s = ''
         _angles = self.angles_poly_oneoverx
-        qubits_applied = list(range(self.qvector_b_size))
+        qubits_applied = list(reversed(list(range(self.qvector_b_size)))) #must be reversed because blockencoding implicitly assumes little endian convention but cudaq uses big endian
+        #qubits_applied = list(range(self.qvector_b_size))
         qubits_applied_str = ''.join([', qvec_b['+str(i)+']' for i in qubits_applied])
         s += '    '+'h(qvec_a[0])\n'
-        s += '    '+'x(qvec_a[0])\n'# control value should be 0
+        #s += '    '+'x(qvec_a[0])\n'
+        
+        #s += '    '+f'rz({-2*_angles[0]}, qvec_b[2])\n'
+        #s += '    '+f'rz.ctrl({-2*_angles[0]}, qvec_a[0], qvec_b[2])\n'
+        #s += '    '+'x(qvec_a[0])\n'
+
+        #return s
+        
+        #s += '    '+'x(qvec_a[0])\n'# control value should be 0
         len_int_angles = len(str(len(_angles)))
         ###
         # forward pass
         ###
+        s += '    '+'x(qvec_a[0])\n'# control value should be 0, 1/2
         _ops_name = 'pi_'+'{:0{l}d}'.format(0, l=len_int_angles)
         s += '    '+_ops_name+'.ctrl(qvec_a[0]'+ qubits_applied_str + ')\n'
+        #s += '    '+'x(qvec_a[0])\n'# control value should be 0, 2/2
+        
+        #s += '    '+'x(qvec_a[0])\n'# control value should be 0, 1/2
+        #s += '    '+'Block_A'+'.ctrl(qvec_a[0]'+ qubits_applied_str + ')\n'
+        #s += '    '+'x(qvec_a[0])\n'# control value should be 0, 2/2
+        #return s
         for i in range(1, len(_angles)):
             _ops_name = 'pi_'+'{:0{l}d}'.format(i, l=len_int_angles)
             s += '    '+'Block_A'+'.ctrl(qvec_a[0]'+ qubits_applied_str + ')\n'
@@ -365,8 +430,10 @@ class QSVT:
         ###
         # flip ancilla
         ###
-        s += '    '+'x(qvec_a[0])\n'# control value should be 1
+        s += '    '+'x(qvec_a[0])\n'# control value should be 0, 2/2
+        #s += '    '+'x(qvec_a[0])\n'# control value should be 1
         
+        #return s
         ###
         # backward pass
         ###
@@ -376,7 +443,7 @@ class QSVT:
             s += '    '+'adj_Block_A'+'.ctrl(qvec_a[0]'+ qubits_applied_str + ')\n'
         _ops_name = 'adj_'+'pi_'+'{:0{l}d}'.format(0, l=len_int_angles)
         s += '    '+_ops_name+'.ctrl(qvec_a[0]'+ qubits_applied_str + ')\n'
-        
+        #return s
         ###
         # take out ancilla qubit from superposition
         ###

@@ -8,7 +8,7 @@
 ##################################################################
 
 
-
+print('Start imports')
 import cudaq
 import sys
 import pathlib
@@ -20,27 +20,33 @@ import pyqsp
 import pyqsp.angle_sequence
 import pennylane as qml
 
-
 from src import qsvt
 
+print('Finished imports')
 
-
-A = np.array(
-   [
+A = np.array([
        [0.65713691, -0.05349524, 0.08024556, -0.07242864],
        [-0.05349524, 0.65713691, -0.07242864, 0.08024556],
        [0.08024556, -0.07242864, 0.65713691, -0.05349524],
        [-0.07242864, 0.08024556, -0.05349524, 0.65713691],
-   ]
-)
+   ])
 b = np.array([1., 2., 3., 4.]).reshape((4,1))
+
+A_Poisson = np.array([
+        [2., -1., 0., 0.],
+        [-1., 2., -1., 0.],
+        [0., -1., 2., -1.],
+        [0., 0., -1., 2.]
+    ])
+b_Poisson = np.array([1., 1., 1., 1.]).reshape((4,1))
+
 
 #qsvt_instance = qsvt.QSVT(A = A,
 #                          b = b,
 qsvt_instance = qsvt.QSVT(
-                         cudaq_target = 'nvidia',
-                         cudaq_target_option = 'fp64',
-                         verbose=99)
+                        cudaq_target = 'nvidia',
+                        cudaq_target_option = 'fp64',
+                        verbose=99)
 #qsvt_instance.BlockEncode_A_unitary()
 cond = qsvt_instance.compute_condition_number()
 print('Condition number:', cond)
@@ -57,6 +63,7 @@ angles_poly_oneoverx = pyqsp.angle_sequence.QuantumSignalProcessingPhases(poly_o
 phi_qsvt = qml.transform_angles(angles_poly_oneoverx, "QSP", "QSVT")
 
 qsvt_instance.angles_poly_oneoverx = phi_qsvt
+#qsvt_instance.angles_poly_oneoverx = [phi_qsvt[0], phi_qsvt[1]]
 
 ##########
 # 
@@ -67,13 +74,17 @@ qsvt_instance.angles_poly_oneoverx = phi_qsvt
 qsvt_instance.construct_qsvt_circuit_pennylane()
 #print(qml.draw(qsvt_instance.circuit_pennylane, decimals=2, show_all_wires=True)())
 qsvt_state_internal = qsvt_instance.circuit_pennylane()
-qsvt_state_internal = qsvt_state_internal[0][:4]
+with np.printoptions(precision=3, linewidth=200):
+    print(qsvt_state_internal)
+if qsvt_state_internal.shape[0] == 1:
+    qsvt_state_internal = qsvt_state_internal[0][:4]
+else:
+    qsvt_state_internal = qsvt_state_internal[:4]
 qsvt_state_internal /= np.linalg.norm(qsvt_state_internal)
 with np.printoptions(precision=3, linewidth=200):
     print(qsvt_state_internal.T)
-    
+print(qml.draw(qsvt_instance.circuit_pennylane, show_all_wires=True)())   
 #print(qml.draw(qsvt_instance.circuit_pennylane, decimals=2, show_all_wires=True)())
-    
 qsvt_instance.construct_string_qsvt_complete()
 
 qsvt_instance.write_kernel_qsvt_complete()
@@ -89,25 +100,68 @@ qsvt_instance.write_kernel_qsvt_complete()
 qsvt_instance.import_kernel_qsvt_complete(remove_file_after_import=False)#, filepath='tmp', filename='kernel_qsvt_complete_from_class_c9f5e4c5_1327_448d_9983_d784994ca5e4.py')
 qsvt_instance.compile_kernel_qsvt_complete()
 
-#qsvt_instance.draw()
-#print(qsvt_instance.circuit_string)
+qsvt_instance.draw()
+print(qsvt_instance.circuit_string)
 
 bit_strings_of_interest = ['0000', '0010', '0001','0011']
-samples = qsvt_instance.sample(shots_count=int(1e6))
-samples_dict = {key: val/qsvt_instance.samples_shots_count for key, val in samples.items()}
-samples_dict = {key: val for key, val in samples_dict.items() if key in bit_strings_of_interest}
-samples_dict = {key: np.sqrt(val) for key, val in samples_dict.items()}
-samples_dict = {key: val/np.linalg.norm(list(samples_dict.values())) for key, val in samples_dict.items()}
-print('Samples:', {key: samples_dict[key] for key in bit_strings_of_interest})
-samples.clear()
-cudaq.reset_target()
+#bit_strings_of_interest = ['0000', '0100', '0010','0110']
+#bit_strings_of_interest = ['0000', '1000', '0100','1100']
+
+#samples = qsvt_instance.sample(shots_count=int(1e6))
+#samples_dict = {key: val/qsvt_instance.samples_shots_count for key, val in samples.items()}
+#samples_dict = {key: val for key, val in samples_dict.items() if key in bit_strings_of_interest}
+#samples_dict = {key: np.sqrt(val) for key, val in samples_dict.items()}
+#samples_dict = {key: val/np.linalg.norm(list(samples_dict.values())) for key, val in samples_dict.items()}
+#print('Samples:', {key: samples_dict[key] for key in bit_strings_of_interest if key in samples_dict.keys()})
+#samples.clear()
+#cudaq.reset_target()
 
 #print(qsvt_instance.bit_strings_big_endian_all)
-state = qsvt_instance.get_state()
+state_obj = qsvt_instance.get_state()
 #print('State:', state)
-state = state.amplitudes(bit_strings_of_interest)
-print('State:', state/np.linalg.norm(state))
+with np.printoptions(precision=3, linewidth=200):
+    state = state_obj.amplitudes(['0000', '0010', '0001','0011']) #bit_strings_of_interest)
+    state /= np.linalg.norm(state)
+    print('State:\n', state/np.linalg.norm(state))
+    sol = qsvt_instance.A @ state
+    sol /= np.linalg.norm(sol)
+    print(sol)
 
+    state2 = state_obj.amplitudes(['0000', '0100', '0010', '0110'])
+    state2 /= np.linalg.norm(state2)
+    print('State:\n', state2/np.linalg.norm(state2))
+    sol = qsvt_instance.A @ state2
+    sol /= np.linalg.norm(sol)
+    print(sol)
+
+    state3 = state_obj.amplitudes(['0000', '1000', '0100', '1100'])
+    state3 /= np.linalg.norm(state3)
+    print('State:\n', state3/np.linalg.norm(state3))
+    sol = qsvt_instance.A @ state3
+    sol /= np.linalg.norm(sol)
+    print(sol)
+
+    state4 = state_obj.amplitudes(['0000', '0001', '0010','0011']) #bit_strings_of_interest)
+    state4 /= np.linalg.norm(state4)
+    print('State:\n', state4/np.linalg.norm(state4))
+    sol = qsvt_instance.A @ state4
+    sol /= np.linalg.norm(sol)
+    print(sol)
+
+    state4 = state_obj
+    print(state4)
+
+    state5 = state_obj.amplitudes(['0000', '1000', '0100','1100']) #bit_strings_of_interest)
+    state5 /= np.linalg.norm(state5)
+    print('State:\n', state5/np.linalg.norm(state5))
+    sol = qsvt_instance.A @ state5
+    sol /= np.linalg.norm(sol)
+    print(sol)
+
+
+print()
+print('Classical solution:')
+print(qsvt_instance.classical_solution.T/np.linalg.norm(qsvt_instance.classical_solution))
 
 # qsvt_instance.construct_string_qsvt_complete()
 # qsvt_instance.write_and_import_kernel_qsvt_complete()
