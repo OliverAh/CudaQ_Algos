@@ -307,7 +307,7 @@ class HHL:
     def _construct_string_kernel_ancilla_rotation(self) -> str:
         s = ''
         for i in range(1,self.qvector_clock_size):
-            angle = 2*np.asin(1/(2**i))
+            angle = 2*np.arcsin(1/(2**i))
             s += f'    ry.ctrl({angle},qvec_c['+str(i)+'],qbit_a)\n'
         return s
 

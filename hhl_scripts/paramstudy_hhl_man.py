@@ -9,7 +9,7 @@ import sys
 import os
 import time
 import pathlib
-sys.path.append(str(pathlib.Path(__file__).parent))
+sys.path.append(str(pathlib.Path(__file__).parent.parent))
 from src import hhl
 
 #for t in cudaq.get_targets():

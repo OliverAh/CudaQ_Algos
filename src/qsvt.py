@@ -92,8 +92,8 @@ class QSVT:
         for i in range(1,size-1):
             A[i,i-1:i+2] = tmp
         b = np.ones((size,1))
-        b = np.array([[1.],[0.],[1.],[0.]])# equvalent to h(qvec_b[1]), I(qvec_b[2]) for Pennylane and CudaQ
-        b = np.array([[1.],[1.],[0.],[0.]])# equvalent to I(qvec_b[1]), h(qvec_b[2]) for Pennylane and CudaQ
+        #b = np.array([[1.],[0.],[1.],[0.]])# equvalent to h(qvec_b[1]), I(qvec_b[2]) for Pennylane and CudaQ
+        #b = np.array([[1.],[1.],[0.],[0.]])# equvalent to I(qvec_b[1]), h(qvec_b[2]) for Pennylane and CudaQ
         return (A, b, alpha)
     
     def _compute_eigendecomposition(self, a:np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -236,7 +236,8 @@ class QSVT:
         self.num_qubits = num_qubits
         
         self.bit_strings_big_endian_all = [format(i, '0' + str(num_qubits) + 'b')[::-1] for i in range(2**num_qubits)]
-        self.bit_strings_big_endian_qvector_b = [format(i, '0' + str(self.qvector_b_size) + 'b')[::-1] for i in range(2**self.qvector_b_size)]
+        #self.bit_strings_big_endian_qvector_b = [format(i, '0' + str(self.qvector_b_size) + 'b')[::-1] for i in range(2**self.qvector_b_size)]
+        self.bit_strings_big_endian_qvector_b = [format(i, '0' + str(self.num_qubits) + 'b') for i in range(self.A.shape[0])]
 
         return None
 
@@ -282,7 +283,8 @@ class QSVT:
             #qml.StatePrep(self.b.T/np.linalg.norm(self.b), range(self.log_system_size_block_encoded+1 - int(np.log2(self.system_size)), self.log_system_size_block_encoded+1))
             #b_tmp = np.array([[1.], [1.]])
             #qml.StatePrep(b_tmp.T/np.linalg.norm(b_tmp), 2)
-            qml.Hadamard(wires=[3])
+            for i in range(1+int(np.log2(self.A.shape[0])-1), self.num_qubits):
+                qml.Hadamard(wires=[i])
             qml.Hadamard(wires=[0])
             #qsvt(self, angles)
             #qml.X(wires=[0])
@@ -323,6 +325,7 @@ class QSVT:
         As the matrix is unitary already, it can be applied as a gate itself. 
         This gate is implemented using custom operations (cudaq.register_operation).
         Same for the adjoint.'''
+        tic = time.time()
         s = ''
         ops_names = []
         
@@ -335,18 +338,22 @@ class QSVT:
         for qc in range(1):
             _ops_name = 'Block_A'
             ops_names.append(_ops_name)
-            s += 'cudaq.register_operation(\''+_ops_name   +'\', np.array(' + np.array2string(a.astype(    np.complex128).flatten(),precision=16,floatmode='maxprec',formatter={'complex_kind': lambda x: f'{x:.16e}'},separator=',').replace('\n', '') + ', dtype=np.complex128))\n'
+            s += 'cudaq.register_operation(\''+_ops_name   +'\', np.array(' + np.array2string(a.astype(    np.complex128).flatten(),precision=16,floatmode='maxprec',formatter={'complex_kind': lambda x: f'{x:.16e}'},separator=',', threshold=sys.maxsize).replace('\n', '') + ', dtype=np.complex128))\n'
             adj_ops_name = 'adj_'+_ops_name
             ops_names.append(adj_ops_name)
-            s += 'cudaq.register_operation(\''+adj_ops_name+'\', np.array(' + np.array2string(a_adj.astype(np.complex128).flatten(),precision=16,floatmode='maxprec',formatter={'complex_kind': lambda x: f'{x:.16e}'},separator=',').replace('\n', '') + ', dtype=np.complex128))\n'
+            s += 'cudaq.register_operation(\''+adj_ops_name+'\', np.array(' + np.array2string(a_adj.astype(np.complex128).flatten(),precision=16,floatmode='maxprec',formatter={'complex_kind': lambda x: f'{x:.16e}'},separator=',', threshold=sys.maxsize).replace('\n', '') + ', dtype=np.complex128))\n'
 
+        toc = time.time()
+
+        if self.verbose > 2:
+            print('##### \n# Finished _construct_string_register_operation_A_block_encoded kernel in', f'{toc-tic}s \n#####')
         return (s, ops_names)
     
     def _construct_string_register_operations_projectors(self) -> Tuple[str, List[str]]:
         '''Constructs the string to register operations of the projector-controlled phaseshifts (PCPhaseshift).
         This gate is implemented using custom operations (cudaq.register_operation).
         Same for the adjoint.'''
-        
+        tic = time.time()
         s = ''
         ops_names = []
         _angles = self.angles_poly_oneoverx
@@ -363,25 +370,35 @@ class QSVT:
             
             _ops_name = 'pi_'+'{:0{l}d}'.format(i, l=len_int_angles)
             ops_names.append(_ops_name)
-            s += 'cudaq.register_operation(\''+_ops_name   +'\', np.array(' + np.array2string(projector.astype(    np.complex128).flatten(),precision=16,floatmode='maxprec',formatter={'complex_kind': lambda x: f'{x:.16e}'},separator=',').replace('\n', '') + ', dtype=np.complex128))\n'
+            s += 'cudaq.register_operation(\''+_ops_name   +'\', np.array(' + np.array2string(projector.astype(    np.complex128).flatten(),precision=16,floatmode='maxprec',formatter={'complex_kind': lambda x: f'{x:.16e}'},separator=',', threshold=sys.maxsize).replace('\n', '') + ', dtype=np.complex128))\n'
             adj_ops_name = 'adj_'+_ops_name
             ops_names.append(adj_ops_name)
-            s += 'cudaq.register_operation(\''+adj_ops_name+'\', np.array(' + np.array2string(projector_adj.astype(np.complex128).flatten(),precision=16,floatmode='maxprec',formatter={'complex_kind': lambda x: f'{x:.16e}'},separator=',').replace('\n', '') + ', dtype=np.complex128))\n'
+            s += 'cudaq.register_operation(\''+adj_ops_name+'\', np.array(' + np.array2string(projector_adj.astype(np.complex128).flatten(),precision=16,floatmode='maxprec',formatter={'complex_kind': lambda x: f'{x:.16e}'},separator=',', threshold=sys.maxsize).replace('\n', '') + ', dtype=np.complex128))\n'
 
+        toc = time.time()
+
+        if self.verbose > 2:
+            print('##### \n# Finished _construct_string_register_operations_projectors kernel in', f'{toc-tic}s \n#####')
         return (s, ops_names)
-
 
     def _construct_string_kernel_initialize_b_register_all_ones(self) -> str:
         '''Constructs the string to initialize state |b> in the part of the b register that holds matrix A.
         This is only valid for a constant vector b, i.e. all elements are the same.
         '''
+        tic = time.time()
         s = ''
         #s = '    swap(qvec_b[0], qvec_b[1])\n'
         #s += f'    x(qvec_b[{0}])\n'
-        #for i in range(int(np.log2(self.system_size))):
-        for i in range(1):
-            q = i+1+1
+        for i in range(int(np.log2(self.system_size))):
+            q = i+1
+        #for i in range(1):
+            #q = i+1+1
             s += f'    h(qvec_b[{q}])\n'
+        
+        toc = time.time()
+
+        if self.verbose > 2:
+            print('##### \n# Finished _construct_string_kernel_initialize_b_register_all_ones kernel in', f'{toc-tic}s \n#####')
         
         return s
     
@@ -394,7 +411,7 @@ class QSVT:
         4. backward pass of qsvt, adjoint of forward pass
         5. ancilla qubit is taken out of superposition
         '''
-        
+        tic = time.time()
         s = ''
         _angles = self.angles_poly_oneoverx
         qubits_applied = list(reversed(list(range(self.qvector_b_size)))) #must be reversed because blockencoding implicitly assumes little endian convention but cudaq uses big endian
@@ -448,9 +465,14 @@ class QSVT:
         # take out ancilla qubit from superposition
         ###
         s += '    '+'h(qvec_a[0])'
+
+        toc = time.time()
+
+        if self.verbose > 2:
+            print('##### \n# Finished _construct_string_kernel_qsvt kernel in', f'{toc-tic}s \n#####')
+        
         return s
     
-
     def construct_string_qsvt_complete(self) -> None:
         '''
         Construct the string of the Python module containing kernel for the complete QSVT algorithm. This includes:
@@ -463,7 +485,7 @@ class QSVT:
         7. Application of the qsvt operator
         8. (Optional) Application of measurements. Before adding measurements here check out postprocessing func below
         '''
-        
+        tic = time.time()
         s_qsvt_complete = ''
         s_qsvt_complete += 'import cudaq\n'
         s_qsvt_complete += 'import numpy as np\n\n'
@@ -471,14 +493,14 @@ class QSVT:
         s_operations_A_block_encoded, operations_A_block_encoded_names = self._construct_string_register_operation_A_block_encoded()
         s_qsvt_complete += s_operations_A_block_encoded + '\n'
 
-        if self.verbose > 2:
-            print('Finished _construct_string_register_operation_A_block_encoded')
+        #if self.verbose > 2:
+        #    print('Finished _construct_string_register_operation_A_block_encoded')
 
         s_operations_projectors, operations_projectors_names = self._construct_string_register_operations_projectors()
         s_qsvt_complete += s_operations_projectors + '\n'
 
-        if self.verbose > 2:
-            print('Finished _construct_string_register_operations_projectors')
+        #if self.verbose > 2:
+        #    print('Finished _construct_string_register_operations_projectors')
 
 
         s_qsvt_complete += '@cudaq.kernel\n'
@@ -495,8 +517,8 @@ class QSVT:
         s_initialization_b_register = self._construct_string_kernel_initialize_b_register()
         s_qsvt_complete += s_initialization_b_register + '\n'
 
-        if self.verbose > 2:
-            print('Finished _construct_string_kernel_initialize_b_register')
+        #if self.verbose > 2:
+        #    print('Finished _construct_string_kernel_initialize_b_register')
 
     
         s_qsvt_complete += '\n'
@@ -508,8 +530,8 @@ class QSVT:
         s_qsvt = self._construct_string_kernel_qsvt()
         s_qsvt_complete += s_qsvt + '\n'
         
-        if self.verbose > 2:
-            print('Finished _construct_string_kernel_qsvt')
+        #if self.verbose > 2:
+        #    print('Finished _construct_string_kernel_qsvt')
 
         
         if self.quantum_registers_to_measure is not None:
@@ -529,6 +551,11 @@ class QSVT:
     
         self.string_kernel_qsvt_complete = s_qsvt_complete
 
+        toc = time.time()
+
+        if self.verbose > 2:
+            print('##### \n# Finished construct_string_qsvt_complete kernel in', f'{toc-tic}s \n#####')
+        
         return None
     
     def write_kernel_qsvt_complete(self) -> None:
@@ -540,9 +567,10 @@ class QSVT:
         - provide directory and filename as input
         - provide possibility to use BufferIO instead of file for better performance
         '''
-        
+        tic = time.time()
         unique_str = uuid.uuid4()
-        filepath = 'tmp'
+        #file_dir = pathlib.Path(__file__).parent --> cudaq_pl/src
+        filepath = '../tmp'
         filename = f'kernel_qsvt_complete_from_class_{unique_str}.py'
         filename = filename.replace('-', '_')
         path = pathlib.Path(filepath, filename)
@@ -553,6 +581,12 @@ class QSVT:
             self.filepath_kernel_qsvt_complete = filepath
             self.filename_kernel_qsvt_complete = filename
             self.filenamepath_kernel_qsvt_complete = path
+        
+        toc = time.time()
+
+        if self.verbose > 2:
+            print('##### \n# Finished write_kernel_qsvt_complete kernel in', f'{toc-tic}s \n#####')
+        
         return
     
     def import_kernel_qsvt_complete(self, remove_file_after_import:bool=True, filepath=None, filename:str=None) -> None:
@@ -564,7 +598,7 @@ class QSVT:
         TODO:
         - provide possibility to use BufferIO instead of file for better performance
         '''
-
+        tic = time.time()
         filepath = self.filepath_kernel_qsvt_complete if filepath is None else filepath
         filename = self.filename_kernel_qsvt_complete if filename is None else filename
         path = pathlib.Path(filepath, filename)
@@ -590,6 +624,11 @@ class QSVT:
                 # list should be of length one
                 p.unlink()
         
+        toc = time.time()
+
+        if self.verbose > 2:
+            print('##### \n# Finished import_kernel_qsvt_complete kernel in', f'{toc-tic}s \n#####')
+        
         return None
     
     def compile_kernel_qsvt_complete(self) -> None:
@@ -603,7 +642,7 @@ class QSVT:
         toc = time.time()
 
         if self.verbose > 2:
-            print('##### \n # Finished compiling kernel in', f'{toc-tic}s \n #####')
+            print('##### \n# Finished compiling kernel in', f'{toc-tic}s \n#####')
         return None
 
     def draw(self) -> str:
@@ -624,7 +663,7 @@ class QSVT:
         self.samples = cudaq.sample(self.kernel_qsvt_complete, **kwargs)
         toc = time.time()
         if self.verbose > 2:
-            print('##### \n # Finished sampling in', f'{toc-tic}s \n #####')
+            print('##### \n# Finished sampling in', f'{toc-tic}s \n#####')
         return self.samples
     
     def sample_async(self, **kwargs) -> None:
@@ -643,7 +682,7 @@ class QSVT:
         self.samples = cudaq.sample_async(self.kernel_qsvt_complete, **kwargs)
         toc = time.time()
         if self.verbose > 2:
-            print('##### \n # Finished sampling in', f'{toc-tic}s \n #####')
+            print('##### \n# Finished sampling in', f'{toc-tic}s \n#####')
 
         if self.verbose > 2:
             print('Finished sample_async')
@@ -661,7 +700,7 @@ class QSVT:
         self.quantum_state = cudaq.get_state(self.kernel_qsvt_complete, **kwargs)
         toc = time.time()
         if self.verbose > 2:
-            print('##### \n # Finished state computation in', f'{toc-tic}s \n #####')
+            print('##### \n# Finished state computation in', f'{toc-tic}s \n#####')
 
         return self.quantum_state
     
@@ -677,7 +716,7 @@ class QSVT:
         self.quantum_state = cudaq.get_state_async(self.kernel_qsvt_complete, **kwargs)
         toc = time.time()
         if self.verbose > 2:
-            print('##### \n # Finished state computation in', f'{toc-tic}s \n #####')
+            print('##### \n# Finished state computation in', f'{toc-tic}s \n#####')
 
         return None
     

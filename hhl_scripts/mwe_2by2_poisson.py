@@ -1,7 +1,7 @@
 import cudaq
 import sys
 import pathlib
-sys.path.append(str(pathlib.Path(__file__).parent))
+sys.path.append(str(pathlib.Path(__file__).parent.parent))
 
 from src import hhl
 
@@ -23,8 +23,3 @@ print('Samples b register:', hhl_instance.samples_dict_ordered_reduced_b_be)
 #print(hhl_instance.get_state())
 #hhl_instance.create_quantum_state_amplitudes_dict_ordered_be()
 #print(hhl_instance.state_amplitudes_dict_ordered_be)
-
-print(hhl_instance.bit_strings_big_endian_all)
-print(hhl_instance.bit_strings_big_endian_qvector_b)
-print(hhl_instance.samples_dict_ordered_be)
-print(hhl_instance.samples_dict_ordered_reduced_b_be)
