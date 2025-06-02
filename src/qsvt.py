@@ -14,7 +14,6 @@ import time
 from typing import List, Callable, Tuple
 
 
-
 class QSVT:
     def __init__(self,
                  system_size:int=4,
@@ -387,12 +386,8 @@ class QSVT:
         '''
         tic = time.time()
         s = ''
-        #s = '    swap(qvec_b[0], qvec_b[1])\n'
-        #s += f'    x(qvec_b[{0}])\n'
         for i in range(int(np.log2(self.system_size))):
-            q = i+1
-        #for i in range(1):
-            #q = i+1+1
+            q = i+1 # +1 because qvec_b[0] is the only blockencoding qubit
             s += f'    h(qvec_b[{q}])\n'
         
         toc = time.time()
@@ -589,7 +584,7 @@ class QSVT:
         
         return
     
-    def import_kernel_qsvt_complete(self, remove_file_after_import:bool=True, filepath=None, filename:str=None) -> None:
+    def import_kernel_qsvt_complete(self, remove_file_after_import:bool=True, filepath=None, filename:str=None, use_kernel_string:bool=False) -> None:
         '''Imports the module containing the kernel from a file. The file is named kernel_qsvt_complete_from_class_<uuid>.py,
         where <uuid> is a unique identifier. 
         By default the file is read from the tmp directory. This can be changed by setting filepath and filename.
@@ -598,16 +593,19 @@ class QSVT:
         TODO:
         - provide possibility to use BufferIO instead of file for better performance
         '''
-        tic = time.time()
-        filepath = self.filepath_kernel_qsvt_complete if filepath is None else filepath
-        filename = self.filename_kernel_qsvt_complete if filename is None else filename
-        path = pathlib.Path(filepath, filename)
-        if self.verbose > 0:
-            print('Importing kernel from:', path)
-        spec = importlib.util.spec_from_file_location('kernel_qsvt_complete_from_class', path)
-        module = importlib.util.module_from_spec(spec)
-        sys.modules['kernel_qsvt_complete_from_class'] = module
-        spec.loader.exec_module(module)
+        if not use_kernel_string:
+            tic = time.time()
+            filepath = self.filepath_kernel_qsvt_complete if filepath is None else filepath
+            filename = self.filename_kernel_qsvt_complete if filename is None else filename
+            path = pathlib.Path(filepath, filename)
+            if self.verbose > 0:
+                print('Importing kernel from:', path)
+            spec = importlib.util.spec_from_file_location('kernel_qsvt_complete_from_class', path)
+            module = importlib.util.module_from_spec(spec)
+            sys.modules['kernel_qsvt_complete_from_class'] = module
+            spec.loader.exec_module(module)
+        else:
+            assert False, 'import_kernel_qsvt_complete(use_kernel_string=True) is not implemented yet'
 
         if self.verbose > 2:
             print('Imported kernel as module')
@@ -760,3 +758,123 @@ class QSVT:
         state_amplitudes_dict_ordered_be = {tqdm.tqdm(zip(self.bit_strings_big_endian_all, self.quantum_state.amplitudes(self.bit_strings_big_endian_all)), disable=not self.verbose > 0)} 
         self.state_amplitudes_dict_ordered_be = state_amplitudes_dict_ordered_be
         return None
+
+
+class PolynomialsAnglesBase():
+    def __init():
+        return
+    
+    def transform_angles_QSP_to_QSVT(self, angles:np.ndarray, verbose=0) -> np.ndarray:
+        '''
+        Transform the angles from QSP to QSVT, using pennylanes qml.transform_angles.
+        '''
+        tic = time.time()
+        phi_qsvt = qml.transform_angles(angles, "QSP", "QSVT")
+        toc = time.time()
+        if verbose > 2:
+            print('##### \n# Converted angles in', f'{toc-tic}s \n#####')
+        return phi_qsvt
+
+class PolynomialsAngles_Loader(PolynomialsAnglesBase):
+    """
+    Class to provide the angles for the polynomial approximation of the QSVT, e.g. 1/x.
+    The angles are loaded from files of precomputed angles.
+    """
+
+    def __init__(self):
+        return
+        
+    def load_angles_from_npy_file(self, filenamepath:str|pathlib.Path, transform_QSP_to_QSVT:bool=True, verbose:int=0):
+        """
+        Load angles from a numpy file.
+        The file should contain a 1D array of angles.
+        """
+        tic = time.time()
+        angles = np.load(filenamepath)
+        if angles.ndim != 1:
+            raise ValueError(f'Angles file {filenamepath} should contain a 1D array of angles. Found {angles.ndim}D array instead.')
+        
+        if transform_QSP_to_QSVT:
+            angles = self.transform_angles_QSP_to_QSVT(angles, verbose=verbose)
+        
+        toc = time.time()
+        if verbose > 2:
+            print('##### \n# Computed poly_oneoverx in', f'{toc-tic}s \n#####')
+        
+        return angles
+    
+    def load_suitable_angles_from_dir(self, angles_dir:str|pathlib.Path=None, kappa:int|float=None, transform_QSP_to_QSVT:bool=True, verbose:int=0):
+        """
+        Load angles from a directory containing numpy files with angles.
+        The file should contain a 1D array of angles.
+        The file is chosen based on the kappa value.
+        """
+        if isinstance(angles_dir, str):
+            angles_dir = pathlib.Path().joinpath(pathlib.Path.cwd(), angles_dir)
+        if not angles_dir.is_dir():
+            raise ValueError(f'Angles directory {angles_dir} does not exist or is not a directory.')
+        
+        # Iterate over all files in the directory and find the first file with int1 > kappa
+        selected_file = None
+        for file in sorted(angles_dir.iterdir()):
+            if file.is_file() and file.name.startswith("kappa_") and file.name.endswith(".npy"):
+                parts = file.stem.split('_')
+                if len(parts) >= 4 and parts[0] == "kappa" and parts[2] == "angles":
+                    try:
+                        int1 = float(parts[1])
+                        if int1 > kappa:
+                            selected_file = file
+                            break
+                    except ValueError:
+                        continue
+
+        if selected_file is None:
+            raise ValueError(f'No suitable angles file found in {angles_dir} for kappa >= {kappa}.')
+
+        filepath = selected_file
+
+        angles = self.load_angles_from_npy_file(filepath, transform_QSP_to_QSVT=transform_QSP_to_QSVT, verbose=verbose)
+        
+        return angles
+
+    
+    
+    #, angles_dir:str=None, angles_filename:str=None, angles_poly_degree:int=10, verbose:int=0) -> None:
+    #    self.angles_dir = angles_dir
+    #    self.angles_filename = angles_filename
+    #    self.angles_poly_degree = angles_poly_degree
+    #    self.verbose = verbose
+
+
+
+
+class PolynomialsAngles_Calculater(PolynomialsAnglesBase):
+    def __init__(self):
+        return
+    
+    def calculate_angles_oneoverx_default(self, kappa:int|float=None, return_coef=True, ensure_bounded=True, return_scale=True, transform_QSP_to_QSVT:bool=True, verbose:int=0) -> np.ndarray:
+        '''
+        Calculate the angles for the polynomial approximation of 1/x using pyqsp.poly.PolyOneOverX.
+        '''
+        tic = time.time()
+        poly_oneoverx, scale_oneoverx = pyqsp.poly.PolyOneOverX().generate(kappa=kappa, 
+                                                                           return_coef=return_coef, 
+                                                                           ensure_bounded=ensure_bounded, 
+                                                                           return_scale=return_scale)
+        toc = time.time()
+        if verbose > 2:
+            print('##### \n# Computed poly_oneoverx in', f'{toc-tic}s \n#####')
+
+        tic = time.time()
+        angles_poly_oneoverx = pyqsp.angle_sequence.QuantumSignalProcessingPhases(poly_oneoverx, signal_operator="Wx", tolerance=0.00001)
+        toc = time.time()
+        toc = time.time()
+        if verbose > 2:
+            print('##### \n# Computed angles in', f'{toc-tic}s \n#####')
+        
+        if transform_QSP_to_QSVT:
+            angles_poly_oneoverx = self.transform_angles_QSP_to_QSVT(angles_poly_oneoverx, verbose=verbose)
+        
+        return angles_poly_oneoverx, scale_oneoverx
+
+    

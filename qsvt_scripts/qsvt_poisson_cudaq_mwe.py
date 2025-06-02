@@ -25,53 +25,68 @@ import time
 
 print('Finished imports')
 
-A = np.array([
-       [0.65713691, -0.05349524, 0.08024556, -0.07242864],
-       [-0.05349524, 0.65713691, -0.07242864, 0.08024556],
-       [0.08024556, -0.07242864, 0.65713691, -0.05349524],
-       [-0.07242864, 0.08024556, -0.05349524, 0.65713691],
-   ])
-b = np.array([1., 2., 3., 4.]).reshape((4,1))
+#
 
-A_Poisson = np.array([
-        [2., -1., 0., 0.],
-        [-1., 2., -1., 0.],
-        [0., -1., 2., -1.],
-        [0., 0., -1., 2.]
-    ])
-b_Poisson = np.array([1., 1., 1., 1.]).reshape((4,1))
+# A = np.array([
+#        [0.65713691, -0.05349524, 0.08024556, -0.07242864],
+#        [-0.05349524, 0.65713691, -0.07242864, 0.08024556],
+#        [0.08024556, -0.07242864, 0.65713691, -0.05349524],
+#        [-0.07242864, 0.08024556, -0.05349524, 0.65713691],
+#    ])
+
+# A_Poisson = np.array([
+#         [2., -1., 0., 0.],
+#         [-1., 2., -1., 0.],
+#         [0., -1., 2., -1.],
+#         [0., 0., -1., 2.]
+#     ])
+#
+# b = np.ones(A_Poisson.shape[0]) # abitrary stateprep currently not implemented, but can be provided by user
 
 
-#qsvt_instance = qsvt.QSVT(A = A,
-#                          b = b,
+
+# qsvt_instance = qsvt.QSVT(A = A,
+#                          b = np.ones(A.shape[0]),
 qsvt_instance = qsvt.QSVT(
-                        system_size=8,
-                        #cudaq_target = 'nvidia',
-                        cudaq_target = 'qpp-cpu',
+                        system_size=4,# must currently be a power of 2, implementation of padding will follow
+                        cudaq_target = 'nvidia',#default single gpu simulator
+                        #cudaq_target = 'qpp-cpu',#cpu simulator
                         cudaq_target_option = 'fp64',
                         verbose=99)
-#qsvt_instance.BlockEncode_A_unitary()
-cond = qsvt_instance.compute_condition_number()
-print('Condition number:', cond)
-
-#angles_internal, scale_oneoverx = qsvt.PolynomialsAngles_Calculater().calculate_angles_oneoverx_default(kappa=cond, verbose=99)
-#qsvt_instance.angles_poly_oneoverx = angles_internal
-#qsvt_instance.angles_poly_oneoverx = [angles_internal[0], angles_internal[1]]
-
-#f = 'qsp_angles/angles/kappa_0010_angles_0000920.npy'
-#angles_loaded_file = qsvt.PolynomialsAngles_Loader().load_angles_from_npy_file(filenamepath=f)
-#qsvt_instance.angles_poly_oneoverx = angles_loaded_file
-#qsvt_instance.angles_poly_oneoverx = [angles_loaded_file[0], angles_loaded_file[1]]
-
-f = 'qsp_angles/angles'
-angles_loaded_dir = qsvt.PolynomialsAngles_Loader().load_suitable_angles_from_dir(angles_dir=f, kappa=cond, verbose=99)
-#assert np.allclose(angles_loaded_file, angles_loaded_dir, atol=1e-5), "Angles do not match!"
-qsvt_instance.angles_poly_oneoverx = angles_loaded_dir
-#qsvt_instance.angles_poly_oneoverx = [angles_loaded_dir[0], angles_loaded_dir[1]]
 
 ##########
 # 
-# Construct the QSVT circuit
+# Compute angles for Projector-Controlled-Phaseshifts
+#
+##########
+cond = qsvt_instance.compute_condition_number()
+print('Condition number:', cond)
+
+tic = time.time()
+kappa = cond
+poly_oneoverx, scale_oneoverx = pyqsp.poly.PolyOneOverX().generate(kappa=kappa, return_coef=True, ensure_bounded=True, return_scale=True)
+toc = time.time()
+if qsvt_instance.verbose > 2:
+    print('##### \n# Computed poly_oneoverx in', f'{toc-tic}s \n#####')
+
+tic = time.time()
+angles_poly_oneoverx = pyqsp.angle_sequence.QuantumSignalProcessingPhases(poly_oneoverx, signal_operator="Wx", tolerance=0.00001)
+toc = time.time()
+toc = time.time()
+if qsvt_instance.verbose > 2:
+    print('##### \n# Computed angles in', f'{toc-tic}s \n#####')
+tic = time.time()
+phi_qsvt = qml.transform_angles(angles_poly_oneoverx, "QSP", "QSVT")
+toc = time.time()
+if qsvt_instance.verbose > 2:
+    print('##### \n# Converted angles in', f'{toc-tic}s \n#####')
+
+qsvt_instance.angles_poly_oneoverx = phi_qsvt
+#qsvt_instance.angles_poly_oneoverx = [phi_qsvt[0], phi_qsvt[1]]
+
+##########
+# 
+# Construct and run Pennylane simulation (optional)
 #
 ##########
 tic = time.time()
@@ -97,6 +112,13 @@ with np.printoptions(precision=3, linewidth=200):
 
 #print(qml.draw(qsvt_instance.circuit_pennylane, show_all_wires=True)())   
 #print(qml.draw(qsvt_instance.circuit_pennylane, decimals=2, show_all_wires=True)())
+
+
+##########
+# 
+# Construct Cudaq kernel and write to file
+#
+##########
 qsvt_instance.construct_string_qsvt_complete()
 
 qsvt_instance.write_kernel_qsvt_complete()
@@ -104,23 +126,33 @@ qsvt_instance.write_kernel_qsvt_complete()
 
 ##########
 # 
-# Execute the QSVT circuit
+# Import Cudaq kernel from file and compile it
 #
 ##########
-
-
 qsvt_instance.import_kernel_qsvt_complete(remove_file_after_import=False)#, filepath='tmp', filename='kernel_qsvt_complete_from_class_c9f5e4c5_1327_448d_9983_d784994ca5e4.py')
 qsvt_instance.compile_kernel_qsvt_complete()
 
+##########
+# 
+# Draw Cudaq circuit (optional)
+#
+##########
 #qsvt_instance.draw()
 #print(qsvt_instance.circuit_string)
 
-bit_strings_of_interest = ['0000', '0010', '0001','0011']
-bit_strings_of_interest = ['0000', '0001', '0010','0011']
-#bit_strings_of_interest = ['0000', '0100', '0010','0110']
-#bit_strings_of_interest = ['0000', '1000', '0100','1100']
-bit_strings_of_interest = ['00000', '00001', '00010','00011','00100','00101','00110','00111']
+##########
+# 
+# Sample and/or get state vector for solution and postprocess results
+# Postprocessing is about to be moved tot the QSVT class, so the user does not have to do it manually
+# For samples the postprocessing here is an artifact from debugging and can probably be simplified
+#
+##########
 
+bit_strings_of_interest = qsvt_instance.bit_strings_big_endian_qvector_b
+
+##
+# Samples
+##
 samples = qsvt_instance.sample(shots_count=int(1e6))
 tic = time.time()
 samples_dict = {key: val/qsvt_instance.samples_shots_count for key, val in samples.items()}
@@ -132,23 +164,25 @@ samples.clear()
 toc = time.time()
 if qsvt_instance.verbose > 2:
     print('##### \n# Finished postprocessing cudaq samples in', f'{toc-tic}s \n#####')
-#cudaq.reset_target()
 
+##
+# State vector
+##
 state_obj = qsvt_instance.get_state()
 with np.printoptions(precision=3, linewidth=200):
     state = state_obj
-    print('State:\n', state)
+    print('Quantum state:\n', state)
 
-    state2 = state_obj.amplitudes(qsvt_instance.bit_strings_big_endian_qvector_b) #bit_strings_of_interest)
+    state2 = state_obj.amplitudes(qsvt_instance.bit_strings_big_endian_qvector_b)
     state2 /= np.linalg.norm(state2)
-    print('State:\n', state2/np.linalg.norm(state2))
-    sol = qsvt_instance.A @ state2
-    sol /= np.linalg.norm(sol)
-    print(sol)
-
-
+    print('Quantum solution:\n', state2/np.linalg.norm(state2))
+    
+##
+# Classical solution
+##
 print()
 print('Classical solution:')
 print(qsvt_instance.classical_solution.T/np.linalg.norm(qsvt_instance.classical_solution))
 print()
+print('Bitstrings of interest:')
 print(qsvt_instance.bit_strings_big_endian_qvector_b)
