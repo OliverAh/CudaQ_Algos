@@ -467,6 +467,67 @@ class QSVT:
             print('##### \n# Finished _construct_string_kernel_qsvt kernel in', f'{toc-tic}s \n#####')
         
         return s
+
+    def _construct_string_kernel_qsvt_projectors_from_native_gates(self) -> str:
+        '''Constructs the string that forms the qsvt operator. This is not the final cudaq kernel, but only the qsvt part within.
+        I.e.: 
+        1. ancilla qubit is initialized to XH|0> (0 control value is required first, X is not really necessary as we know state is H|0>)
+        2. forward pass of qsvt, projectors|blockencoding|projectors|block...
+        3. ancilla qubit is flipped
+        4. backward pass of qsvt, adjoint of forward pass
+        5. ancilla qubit is taken out of superposition
+        '''
+        tic = time.time()
+        s = ''
+        _angles = self.angles_poly_oneoverx
+        qubits_applied = list(reversed(list(range(self.qvector_b_size)))) #must be reversed because blockencoding implicitly assumes little endian convention but cudaq uses big endian
+        qubits_applied_str = ''.join([', qvec_b['+str(i)+']' for i in qubits_applied])
+        s += '    '+'h(qvec_a[0])\n'
+
+        len_int_angles = len(str(len(_angles)))
+
+        ###
+        # forward pass
+        ###
+        s += '    '+'x(qvec_a[0])\n'# control value should be 0, 1/2
+        
+        s += '    '+'rz.ctrl('+str(-2*_angles[0])+', qvec_a[0], qvec_b['+str(qubits_applied[-1])+'])\n'
+        
+        #_ops_name = 'pi_'+'{:0{l}d}'.format(0, l=len_int_angles)
+        #s += '    '+_ops_name+'.ctrl(qvec_a[0]'+ qubits_applied_str + ')\n'
+
+        for i in range(1, len(_angles)):
+            #_ops_name = 'pi_'+'{:0{l}d}'.format(i, l=len_int_angles)
+            s += '    '+'Block_A'+'.ctrl(qvec_a[0]'+ qubits_applied_str + ')\n'
+            #s += '    '+_ops_name+'.ctrl(qvec_a[0]'+ qubits_applied_str + ')\n'
+            s += '    '+'rz.ctrl('+str(-2*_angles[i])+', qvec_a[0], qvec_b['+str(qubits_applied[-1])+'])\n'
+        ###
+        # flip ancilla
+        ###
+        s += '    '+'x(qvec_a[0])\n'# control value should be 0, 2/2
+
+        ###
+        # backward pass
+        ###
+        for i in range(len(_angles)-1, 0, -1):
+            #_ops_name = 'adj_'+'pi_'+'{:0{l}d}'.format(i, l=len_int_angles)
+            #s += '    '+_ops_name+'.ctrl(qvec_a[0]'+ qubits_applied_str + ')\n'# not inverted?
+            s += '    '+'rz.ctrl('+str(2*_angles[i])+', qvec_a[0], qvec_b['+str(qubits_applied[-1])+'])\n'
+            s += '    '+'adj_Block_A'+'.ctrl(qvec_a[0]'+ qubits_applied_str + ')\n'
+        #_ops_name = 'adj_'+'pi_'+'{:0{l}d}'.format(0, l=len_int_angles)
+        #s += '    '+_ops_name+'.ctrl(qvec_a[0]'+ qubits_applied_str + ')\n'
+        s += '    '+'rz.ctrl('+str(2*_angles[0])+', qvec_a[0], qvec_b['+str(qubits_applied[-1])+'])\n'
+        ###
+        # take out ancilla qubit from superposition
+        ###
+        s += '    '+'h(qvec_a[0])'
+
+        toc = time.time()
+
+        if self.verbose > 2:
+            print('##### \n# Finished _construct_string_kernel_qsvt kernel in', f'{toc-tic}s \n#####')
+
+        return s
     
     def construct_string_qsvt_complete(self) -> None:
         '''
@@ -491,8 +552,8 @@ class QSVT:
         #if self.verbose > 2:
         #    print('Finished _construct_string_register_operation_A_block_encoded')
 
-        s_operations_projectors, operations_projectors_names = self._construct_string_register_operations_projectors()
-        s_qsvt_complete += s_operations_projectors + '\n'
+        #s_operations_projectors, operations_projectors_names = self._construct_string_register_operations_projectors()
+        #s_qsvt_complete += s_operations_projectors + '\n'
 
         #if self.verbose > 2:
         #    print('Finished _construct_string_register_operations_projectors')
@@ -522,7 +583,8 @@ class QSVT:
         s_qsvt_complete += '    ####################\n'
         s_qsvt_complete += '\n'
     
-        s_qsvt = self._construct_string_kernel_qsvt()
+        #s_qsvt = self._construct_string_kernel_qsvt()
+        s_qsvt = self._construct_string_kernel_qsvt_projectors_from_native_gates()
         s_qsvt_complete += s_qsvt + '\n'
         
         #if self.verbose > 2:
@@ -784,7 +846,7 @@ class PolynomialsAngles_Loader(PolynomialsAnglesBase):
     def __init__(self):
         return
         
-    def load_angles_from_npy_file(self, filenamepath:str|pathlib.Path, transform_QSP_to_QSVT:bool=True, verbose:int=0):
+    def load_angles_from_npy_file(self, filenamepath:str|pathlib.Path, transform_QSP_to_QSVT:bool=True, verbose:int=0) -> np.ndarray:
         """
         Load angles from a numpy file.
         The file should contain a 1D array of angles.
@@ -799,15 +861,16 @@ class PolynomialsAngles_Loader(PolynomialsAnglesBase):
         
         toc = time.time()
         if verbose > 2:
-            print('##### \n# Computed poly_oneoverx in', f'{toc-tic}s \n#####')
+            print('##### \n# Loaded angles from file in', f'{toc-tic}s \n#####')
         
         return angles
     
-    def load_suitable_angles_from_dir(self, angles_dir:str|pathlib.Path=None, kappa:int|float=None, transform_QSP_to_QSVT:bool=True, verbose:int=0):
+    def load_suitable_angles_from_dir(self, angles_dir:str|pathlib.Path=None, kappa:int|float=None, transform_QSP_to_QSVT:bool=True, verbose:int=0) -> np.ndarray:
         """
         Load angles from a directory containing numpy files with angles.
         The file should contain a 1D array of angles.
         The file is chosen based on the kappa value.
+        The files should follow the following naming convention: kappa_int1_angles_int2.npy
         """
         if isinstance(angles_dir, str):
             angles_dir = pathlib.Path().joinpath(pathlib.Path.cwd(), angles_dir)
@@ -831,28 +894,15 @@ class PolynomialsAngles_Loader(PolynomialsAnglesBase):
         if selected_file is None:
             raise ValueError(f'No suitable angles file found in {angles_dir} for kappa >= {kappa}.')
 
-        filepath = selected_file
-
-        angles = self.load_angles_from_npy_file(filepath, transform_QSP_to_QSVT=transform_QSP_to_QSVT, verbose=verbose)
+        angles = self.load_angles_from_npy_file(selected_file, transform_QSP_to_QSVT=transform_QSP_to_QSVT, verbose=verbose)
         
         return angles
-
-    
-    
-    #, angles_dir:str=None, angles_filename:str=None, angles_poly_degree:int=10, verbose:int=0) -> None:
-    #    self.angles_dir = angles_dir
-    #    self.angles_filename = angles_filename
-    #    self.angles_poly_degree = angles_poly_degree
-    #    self.verbose = verbose
-
-
-
 
 class PolynomialsAngles_Calculater(PolynomialsAnglesBase):
     def __init__(self):
         return
     
-    def calculate_angles_oneoverx_default(self, kappa:int|float=None, return_coef=True, ensure_bounded=True, return_scale=True, transform_QSP_to_QSVT:bool=True, verbose:int=0) -> np.ndarray:
+    def calculate_angles_oneoverx_default(self, kappa:int|float=None, return_coef=True, ensure_bounded=True, return_scale=True, transform_QSP_to_QSVT:bool=True, signal_operator="Wx", tolerance=0.00001, verbose:int=0) -> np.ndarray:
         '''
         Calculate the angles for the polynomial approximation of 1/x using pyqsp.poly.PolyOneOverX.
         '''
@@ -866,8 +916,7 @@ class PolynomialsAngles_Calculater(PolynomialsAnglesBase):
             print('##### \n# Computed poly_oneoverx in', f'{toc-tic}s \n#####')
 
         tic = time.time()
-        angles_poly_oneoverx = pyqsp.angle_sequence.QuantumSignalProcessingPhases(poly_oneoverx, signal_operator="Wx", tolerance=0.00001)
-        toc = time.time()
+        angles_poly_oneoverx = pyqsp.angle_sequence.QuantumSignalProcessingPhases(poly_oneoverx, signal_operator=signal_operator, tolerance=tolerance)
         toc = time.time()
         if verbose > 2:
             print('##### \n# Computed angles in', f'{toc-tic}s \n#####')
@@ -877,4 +926,3 @@ class PolynomialsAngles_Calculater(PolynomialsAnglesBase):
         
         return angles_poly_oneoverx, scale_oneoverx
 
-    
