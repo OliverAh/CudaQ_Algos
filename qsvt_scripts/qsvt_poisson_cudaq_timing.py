@@ -45,9 +45,9 @@ b_Poisson = np.array([1., 1., 1., 1.]).reshape((4,1))
 #qsvt_instance = qsvt.QSVT(A = A,
 #                          b = b,
 qsvt_instance = qsvt.QSVT(
-                        system_size=8,
-                        #cudaq_target = 'nvidia',
-                        cudaq_target = 'qpp-cpu',
+                        system_size=4,
+                        cudaq_target = 'nvidia',
+                        #cudaq_target = 'qpp-cpu',
                         cudaq_target_option = 'fp64',
                         verbose=99)
 #qsvt_instance.BlockEncode_A_unitary()
@@ -68,6 +68,7 @@ angles_loaded_dir = qsvt.PolynomialsAngles_Loader().load_suitable_angles_from_di
 #assert np.allclose(angles_loaded_file, angles_loaded_dir, atol=1e-5), "Angles do not match!"
 qsvt_instance.angles_poly_oneoverx = angles_loaded_dir
 #qsvt_instance.angles_poly_oneoverx = [angles_loaded_dir[0], angles_loaded_dir[1]]
+#qsvt_instance.angles_poly_oneoverx = [0.0, angles_loaded_dir[1]]
 
 ##########
 # 
@@ -119,7 +120,8 @@ bit_strings_of_interest = ['0000', '0010', '0001','0011']
 bit_strings_of_interest = ['0000', '0001', '0010','0011']
 #bit_strings_of_interest = ['0000', '0100', '0010','0110']
 #bit_strings_of_interest = ['0000', '1000', '0100','1100']
-bit_strings_of_interest = ['00000', '00001', '00010','00011','00100','00101','00110','00111']
+#bit_strings_of_interest = ['00000', '00001', '00010','00011','00100','00101','00110','00111']
+bit_strings_of_interest = qsvt_instance.bit_strings_big_endian_qvector_b
 
 samples = qsvt_instance.sample(shots_count=int(1e6))
 tic = time.time()
