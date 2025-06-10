@@ -76,6 +76,29 @@ class QSVT:
 
         return
 
+    def _init_filepaths(self) -> None:
+        """
+        Defines filepaths for:
+        - qsvt kernel
+        - qsvt angles
+        """
+        dir = '.../tmp'
+        unique_str = uuid.uuid4()
+        #file_dir = pathlib.Path(__file__).parent --> cudaq_pl/src
+        filepath = '../tmp'
+        
+        filename_kernel = f'kernel_qsvt_complete_from_class_{unique_str}.py'
+        filename_kernel = filename_kernel.replace('-', '_')
+        
+        self.filepath_kernel_qsvt_complete = filepath
+        self.filename_kernel_qsvt_complete = filename_kernel
+        self.path_kernel = pathlib.Path(filepath, filename_kernel)
+
+        filename_angles = f'angles_qsvt_from_class_{unique_str}.npy'
+        filename_angles = filename_angles.replace('-', '_')
+        self.path_angles = pathlib.Path(filepath, filename_angles)
+        return None
+
     def _init_Ab_poisson_first_order_FD(self) -> Tuple[np.ndarray,np.ndarray,float]:
         """
         Initialize A and b for the Poisson equation with first order FDE
@@ -541,10 +564,15 @@ class QSVT:
         7. Application of the qsvt operator
         8. (Optional) Application of measurements. Before adding measurements here check out postprocessing func below
         '''
+
+        self._init_filepaths()
+
         tic = time.time()
         s_qsvt_complete = ''
         s_qsvt_complete += 'import cudaq\n'
         s_qsvt_complete += 'import numpy as np\n\n'
+
+        s_qsvt_complete += f'angles = np.load(\'{self.path_angles}\')\n\n'
     
         s_operations_A_block_encoded, operations_A_block_encoded_names = self._construct_string_register_operation_A_block_encoded()
         s_qsvt_complete += s_operations_A_block_encoded + '\n'
@@ -615,6 +643,12 @@ class QSVT:
         
         return None
     
+    def _write_angles_with_kernel(self) -> None:
+        '''Write the angles used in the kernel to a file. By default the file is removed after import. 
+        This can be changed by setting remove_file_after_import=False in import_kernel_qsvt_complete().
+        '''
+        np.save(file=self.path_angles, arr=self.angles_poly_oneoverx)
+
     def write_kernel_qsvt_complete(self) -> None:
         '''Write the module containing the kernel to a file. The file is named kernel_qsvt_complete_from_class_<uuid>.py,
         where <uuid> is a unique identifier. The file is written to the tmp directory. The file can be imported later.
@@ -625,20 +659,23 @@ class QSVT:
         - provide possibility to use BufferIO instead of file for better performance
         '''
         tic = time.time()
-        unique_str = uuid.uuid4()
-        #file_dir = pathlib.Path(__file__).parent --> cudaq_pl/src
-        filepath = '../tmp'
-        filename = f'kernel_qsvt_complete_from_class_{unique_str}.py'
-        filename = filename.replace('-', '_')
-        path = pathlib.Path(filepath, filename)
+        # unique_str = uuid.uuid4()
+        # #file_dir = pathlib.Path(__file__).parent --> cudaq_pl/src
+        # filepath = '../tmp'
+        # filename_kernel = f'kernel_qsvt_complete_from_class_{unique_str}.py'
+        # filename_kernel = filename_kernel.replace('-', '_')
+        # path_kernel = pathlib.Path(filepath, filename_kernel)
+        path_kernel = self.path_kernel
         if self.verbose > 0:
-            print('Wrote kernel to:', path)
-        with open (path, 'w') as f:
+            print('Wrote kernel to:', path_kernel)
+        with open (path_kernel, 'w') as f:
             f.write(self.string_kernel_qsvt_complete)
-            self.filepath_kernel_qsvt_complete = filepath
-            self.filename_kernel_qsvt_complete = filename
-            self.filenamepath_kernel_qsvt_complete = path
+            # self.filepath_kernel_qsvt_complete = filepath
+            # self.filename_kernel_qsvt_complete = filename_kernel
+            # self.filenamepath_kernel_qsvt_complete = path_kernel
         
+        self._write_angles_with_kernel()
+
         toc = time.time()
 
         if self.verbose > 2:
@@ -657,9 +694,18 @@ class QSVT:
         '''
         if not use_kernel_string:
             tic = time.time()
-            filepath = self.filepath_kernel_qsvt_complete if filepath is None else filepath
-            filename = self.filename_kernel_qsvt_complete if filename is None else filename
-            path = pathlib.Path(filepath, filename)
+            if filepath is None and filename is None:
+                path = self.path_kernel
+            else:
+                if filepath is None:
+                    filepath = self.filepath_kernel_qsvt_complete
+                if filename is None:
+                    filename = self.filename_kernel_qsvt_complete
+                path = pathlib.Path(filepath, filename)
+            #filepath = self.filepath_kernel_qsvt_complete if filepath is None else filepath
+            #filename = self.filename_kernel_qsvt_complete if filename is None else filename
+            #path = pathlib.Path(filepath, filename)
+            #path = self.path_kernel
             if self.verbose > 0:
                 print('Importing kernel from:', path)
             spec = importlib.util.spec_from_file_location('kernel_qsvt_complete_from_class', path)
