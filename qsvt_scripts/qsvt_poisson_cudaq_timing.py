@@ -23,7 +23,7 @@ import pennylane as qml
 from src import qsvt
 import time
 
-print('Finished imports')
+print('Finished imports\n')
 
 A = np.array([
        [0.65713691, -0.05349524, 0.08024556, -0.07242864],
@@ -45,14 +45,14 @@ b_Poisson = np.array([1., 1., 1., 1.]).reshape((4,1))
 #qsvt_instance = qsvt.QSVT(A = A,
 #                          b = b,
 qsvt_instance = qsvt.QSVT(
-                        system_size=4,
+                        system_size=8,
                         cudaq_target = 'nvidia',
                         #cudaq_target = 'qpp-cpu',
                         cudaq_target_option = 'fp64',
                         verbose=99)
 #qsvt_instance.BlockEncode_A_unitary()
 cond = qsvt_instance.compute_condition_number()
-print('Condition number:', cond)
+#print('Condition number:', cond)
 
 #angles_internal, scale_oneoverx = qsvt.PolynomialsAngles_Calculater().calculate_angles_oneoverx_default(kappa=cond, verbose=99)
 #qsvt_instance.angles_poly_oneoverx = angles_internal
@@ -87,14 +87,14 @@ toc = time.time()
 if qsvt_instance.verbose > 2:
             print('##### \n# Pennylane finished sampling in', f'{toc-tic}s \n#####')
 with np.printoptions(precision=3, linewidth=200):
-    print(qsvt_state_internal)
+    print('Pennylane state complete:\n', qsvt_state_internal)
 if qsvt_state_internal.shape[0] == 1:
     qsvt_state_internal = qsvt_state_internal[0][:qsvt_instance.system_size]
 else:
     qsvt_state_internal = qsvt_state_internal[:qsvt_instance.system_size]
 qsvt_state_internal /= np.linalg.norm(qsvt_state_internal)
 with np.printoptions(precision=3, linewidth=200):
-    print(qsvt_state_internal.T)
+    print('Pennylane state b_vec normalized:\n', qsvt_state_internal.T, '\n')
 
 #print(qml.draw(qsvt_instance.circuit_pennylane, show_all_wires=True)())   
 #print(qml.draw(qsvt_instance.circuit_pennylane, decimals=2, show_all_wires=True)())
@@ -129,7 +129,7 @@ samples_dict = {key: val/qsvt_instance.samples_shots_count for key, val in sampl
 samples_dict = {key: val for key, val in samples_dict.items() if key in bit_strings_of_interest}
 samples_dict = {key: np.sqrt(val) for key, val in samples_dict.items()}
 samples_dict = {key: val/np.linalg.norm(list(samples_dict.values())) for key, val in samples_dict.items()}
-print('Samples:\n', {key: samples_dict[key] for key in bit_strings_of_interest if key in samples_dict.keys()})
+print('Cudaq samples b_reg normalized:\n', {key: samples_dict[key] for key in bit_strings_of_interest if key in samples_dict.keys()})
 samples.clear()
 toc = time.time()
 if qsvt_instance.verbose > 2:
@@ -139,18 +139,22 @@ if qsvt_instance.verbose > 2:
 state_obj = qsvt_instance.get_state()
 with np.printoptions(precision=3, linewidth=200):
     state = state_obj
-    print('State:\n', state)
+    print('Cudaq state complete:\n', state)
 
     state2 = state_obj.amplitudes(qsvt_instance.bit_strings_big_endian_qvector_b) #bit_strings_of_interest)
     state2 /= np.linalg.norm(state2)
-    print('State:\n', state2/np.linalg.norm(state2))
-    sol = qsvt_instance.A @ state2
-    sol /= np.linalg.norm(sol)
-    print(sol)
+    print('Cudaq state b_reg normalized:\n', state2, '\n')
 
+    print('RHS for state, (not) rescaled:\n',
+          qsvt_instance.A_unitary @ state2, '\n',
+          qsvt_instance.A_unitary @ state2
+          * qsvt_instance.A_block_encoded_unitary_scale
+          * qsvt_instance.b_block_encoded_scale)
 
 print()
-print('Classical solution:')
-print(qsvt_instance.classical_solution.T/np.linalg.norm(qsvt_instance.classical_solution))
+print('Classical solution (not) normalized:')
+print(qsvt_instance.classical_solution.T, '\n',
+      qsvt_instance.classical_solution.T/np.linalg.norm(qsvt_instance.classical_solution))
 print()
+print('bit_strings_big_endian_qvector_b:')
 print(qsvt_instance.bit_strings_big_endian_qvector_b)

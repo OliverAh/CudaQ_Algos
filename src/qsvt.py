@@ -158,7 +158,7 @@ class QSVT:
         A_unitary = np.zeros_like(A)
         A_unitary = A
         _eigs, _v = self._compute_eigendecomposition(A)
-        print('Condition number from eigs:', np.max(np.abs(_eigs)) / np.min(np.abs(_eigs)))
+        #print('Condition number from eigs:', np.max(np.abs(_eigs)) / np.min(np.abs(_eigs)))
         #_U, _s, _Vh = self._compute_singularvaluedecomposition(A)   # alternative to eigendecomp: svd
         #self.A_inverse = _U @ np.diag(1/_s) @ _Vh                   # alternative to eigendecomp: svd
         self.A_inverse = _v @ np.diag(1/_eigs) @ _v.T
@@ -183,7 +183,7 @@ class QSVT:
         # Build block encoded matrix M = [ A, sqrt(I-AA); sqrt(I-AA), -A ]
         # M is unitary
         ###
-        print('A_unitary_scale:', A_unitary_scale)
+        print('  A_unitary_scale:', A_unitary_scale)
         A_off_diag = np.zeros(A.shape)
         A_off_diag = np.eye(A.shape[0]) - A_unitary @ A_unitary
         _eigs, _v = self._compute_eigendecomposition(A_off_diag)
@@ -209,7 +209,7 @@ class QSVT:
             sys.exit(0)
         else:
             if self.verbose > 0:
-                print('Block encoding successfull')
+                print('  Block encoding successfull\n')
         A_off_diag = _A_off_diag
         # Create a block encoding of the system
         A_block_encoded = np.zeros((2*A.shape[0], 2*A.shape[1]), dtype=A_off_diag.dtype)
@@ -241,10 +241,12 @@ class QSVT:
 
         self.b_block_encoded_normalized = np.zeros((2*self.b.shape[0], 1), dtype=self.b.dtype)
         self.b_block_encoded_normalized[:self.b.shape[0]] = self.b
-        self.b_block_encoded_normalized /= np.linalg.norm(self.b_block_encoded_normalized)
+        self.b_block_encoded_scale = np.linalg.norm(self.b_block_encoded_normalized)
+        #print('self.b_block_encoded_scale', self.b_block_encoded_scale)
+        self.b_block_encoded_normalized /= self.b_block_encoded_scale
 
-        print('A_block_encoded_unitary:\n', self.A_block_encoded_unitary)
-        print('b_block_encoded_normalized:\n', self.b_block_encoded_normalized)
+        # print('  A_block_encoded_unitary:\n', ' ', self.A_block_encoded_unitary)
+        # print('  b_block_encoded_normalized:\n', ' ', self.b_block_encoded_normalized)
 
         return None
 
@@ -252,7 +254,7 @@ class QSVT:
         self.log_system_size_block_encoded = int(np.log2(self.A_block_encoded_unitary.shape[0]))
         self.qvector_ancilla_size = 1
         self.qvector_b_size = self.log_system_size_block_encoded
-        if self.verbose >= 2: print('self.qvector_b_size', self.qvector_b_size)
+        if self.verbose >= 2: print('self.qvector_b_size', self.qvector_b_size, '\n')
         
         num_qubits = self.qvector_ancilla_size + self.qvector_b_size
         self.num_qubits = num_qubits
@@ -268,11 +270,17 @@ class QSVT:
         Compute the condition number of matrix
         """
         if a is None:
-            a = self.A
-        self.A_condition_number = np.linalg.cond(a, p=2)
-        if self.verbose > 0:
-            print('Condition number:', self.A_condition_number)
-        return self.A_condition_number
+            _a = self.A
+        else:
+            _a = a
+        cond = np.linalg.cond(_a, p=2)
+        if self.verbose > 2:
+            if a is None:
+                self.A_condition_number = cond
+                print('Condition number of self.A:', self.A_condition_number, '\n')
+            else:
+                print('Condition number:', cond, '\n')
+        return cond
 
     def compute_classical_solution(self) -> None:
         self.classical_solution = np.linalg.solve(self.A, self.b)
@@ -282,9 +290,9 @@ class QSVT:
         #self.eigvals = np.linalg.eigvals(self.A)
         #self.eigvecs = np.linalg.eig(self.A)[1]
         self.eigvals, self.eigvecs = scipy.linalg.eigh(self.A)
-        if self.verbose > 0:
-            print('Eigenvalues:\n', self.eigvals)
-            print('Eigenvectors:\n', self.eigvecs)
+        if self.verbose > 2:
+            print('Eigenvalues of A:\n', self.eigvals)
+            print('Eigenvectors of A:\n', self.eigvecs, '\n')
         return None
 
     def construct_qsvt_circuit_pennylane(self, pennylane_device:str|None='default.qubit') -> None:
@@ -552,6 +560,72 @@ class QSVT:
 
         return s
     
+    def _construct_string_kernel_qsvt_for_loops(self) -> str:
+        '''Constructs the string that forms the qsvt operator. This is not the final cudaq kernel, but only the qsvt part within.
+        I.e.: 
+        1. ancilla qubit is initialized to XH|0> (0 control value is required first, X is not really necessary as we know state is H|0>)
+        2. forward pass of qsvt, projectors|blockencoding|projectors|block...
+        3. ancilla qubit is flipped
+        4. backward pass of qsvt, adjoint of forward pass
+        5. ancilla qubit is taken out of superposition
+        '''
+        tic = time.time()
+        s = ''
+        _angles = self.angles_poly_oneoverx
+        qubits_applied = list(reversed(list(range(self.qvector_b_size)))) #must be reversed because blockencoding implicitly assumes little endian convention but cudaq uses big endian
+        qubits_applied_str = ''.join([', qvec_b['+str(i)+']' for i in qubits_applied])
+        s += '    '+'h(qvec_a[0])\n'
+
+        len_int_angles = len(str(len(_angles)))
+
+        ###
+        # forward pass
+        ###
+        s += '    '+'x(qvec_a[0])\n'# control value should be 0, 1/2
+        
+        s += '    '+'rz.ctrl(-2*angles[0], qvec_a[0], qvec_b['+str(qubits_applied[-1])+'])\n'
+        
+        #for i in range(1, len(_angles)):
+        #    #_ops_name = 'pi_'+'{:0{l}d}'.format(i, l=len_int_angles)
+        #    s += '    '+'Block_A'+'.ctrl(qvec_a[0]'+ qubits_applied_str + ')\n'
+        #    #s += '    '+_ops_name+'.ctrl(qvec_a[0]'+ qubits_applied_str + ')\n'
+        #    s += '    '+'rz.ctrl('+str(-2*_angles[i])+', qvec_a[0], qvec_b['+str(qubits_applied[-1])+'])\n'
+        
+        s += '    '+ 'for i in range(1, len(angles)):\n'
+        s += '        '+'Block_A.ctrl(qvec_a[0]'+ qubits_applied_str + ')\n'
+        s += '        '+'rz.ctrl(-2*angles[i], qvec_a[0], qvec_b['+str(qubits_applied[-1])+'])\n'
+        
+        ###
+        # flip ancilla
+        ###
+        s += '    '+'x(qvec_a[0])\n'# control value should be 0, 2/2
+
+        ###
+        # backward pass
+        ###
+        #for i in range(len(_angles)-1, 0, -1):
+        #    s += '    '+'rz.ctrl('+str(2*_angles[i])+', qvec_a[0], qvec_b['+str(qubits_applied[-1])+'])\n'
+        #    s += '    '+'adj_Block_A'+'.ctrl(qvec_a[0]'+ qubits_applied_str + ')\n'
+        #s += '    '+'rz.ctrl('+str(2*_angles[0])+', qvec_a[0], qvec_b['+str(qubits_applied[-1])+'])\n'
+        
+        s += '    '+'for i in range(len(angles)-1, 0, -1):\n'
+        s += '        '+'rz.ctrl(2*angles[i], qvec_a[0], qvec_b['+str(qubits_applied[-1])+'])\n'
+        s += '        '+'adj_Block_A.ctrl(qvec_a[0]'+ qubits_applied_str + ')\n'
+        s += '    '+'rz.ctrl(2*angles[0], qvec_a[0], qvec_b['+str(qubits_applied[-1])+'])\n'
+        
+        
+        ###
+        # take out ancilla qubit from superposition
+        ###
+        s += '    '+'h(qvec_a[0])'
+
+        toc = time.time()
+
+        if self.verbose > 2:
+            print('##### \n# Finished _construct_string_kernel_qsvt kernel in', f'{toc-tic}s \n#####')
+
+        return s
+
     def construct_string_qsvt_complete(self) -> None:
         '''
         Construct the string of the Python module containing kernel for the complete QSVT algorithm. This includes:
@@ -572,8 +646,9 @@ class QSVT:
         s_qsvt_complete += 'import cudaq\n'
         s_qsvt_complete += 'import numpy as np\n\n'
 
-        s_qsvt_complete += f'angles = np.load(\'{self.path_angles}\')\n\n'
-    
+        s_qsvt_complete += f'angles = np.load(\'{self.path_angles}\')\n'
+        s_qsvt_complete += 'angles = list(angles.flatten())\n\n'
+
         s_operations_A_block_encoded, operations_A_block_encoded_names = self._construct_string_register_operation_A_block_encoded()
         s_qsvt_complete += s_operations_A_block_encoded + '\n'
 
@@ -588,7 +663,7 @@ class QSVT:
 
 
         s_qsvt_complete += '@cudaq.kernel\n'
-        s_qsvt_complete += 'def qsvt():\n'
+        s_qsvt_complete += 'def qsvt(angles:list[float]):\n'
         s_qsvt_complete += '    qvec_a = cudaq.qvector('+str(self.qvector_ancilla_size)+')\n'
         s_qsvt_complete += '    qvec_b = cudaq.qvector('+str(self.qvector_b_size)+')\n'
     
@@ -612,7 +687,8 @@ class QSVT:
         s_qsvt_complete += '\n'
     
         #s_qsvt = self._construct_string_kernel_qsvt()
-        s_qsvt = self._construct_string_kernel_qsvt_projectors_from_native_gates()
+        #s_qsvt = self._construct_string_kernel_qsvt_projectors_from_native_gates()
+        s_qsvt = self._construct_string_kernel_qsvt_for_loops()
         s_qsvt_complete += s_qsvt + '\n'
         
         #if self.verbose > 2:
@@ -716,12 +792,12 @@ class QSVT:
             assert False, 'import_kernel_qsvt_complete(use_kernel_string=True) is not implemented yet'
 
         if self.verbose > 2:
-            print('Imported kernel as module')
+            print('  Imported kernel as module')
 
         self.kernel_qsvt_complete = cudaq.PyKernelDecorator.from_json(module.qsvt.to_json())
 
         if self.verbose > 2:
-            print('Created kernel from module')
+            print('  Created kernel from module')
 
         if remove_file_after_import:
             path.unlink()
@@ -752,7 +828,7 @@ class QSVT:
         return None
 
     def draw(self) -> str:
-        self.circuit_string = cudaq.draw(self.kernel_qsvt_complete)
+        self.circuit_string = cudaq.draw(self.kernel_qsvt_complete, self.angles_poly_oneoverx)
         return self.circuit_string
     
     def sample(self, **kwargs):# -> cudaq.SampleResult:
@@ -766,7 +842,7 @@ class QSVT:
         else:
             self.samples_shots_count = kwargs['shots_count']
         tic = time.time()
-        self.samples = cudaq.sample(self.kernel_qsvt_complete, **kwargs)
+        self.samples = cudaq.sample(self.kernel_qsvt_complete, self.angles_poly_oneoverx, **kwargs)
         toc = time.time()
         if self.verbose > 2:
             print('##### \n# Finished sampling in', f'{toc-tic}s \n#####')
@@ -785,13 +861,10 @@ class QSVT:
         if self.verbose > 2:
             print('Start sample_async')
         tic = time.time()
-        self.samples = cudaq.sample_async(self.kernel_qsvt_complete, **kwargs)
+        self.samples = cudaq.sample_async(self.kernel_qsvt_complete, self.angles_poly_oneoverx, **kwargs)
         toc = time.time()
         if self.verbose > 2:
             print('##### \n# Finished sampling in', f'{toc-tic}s \n#####')
-
-        if self.verbose > 2:
-            print('Finished sample_async')
         return None
     
     def get_state(self, **kwargs):# -> cudaq.State:
@@ -803,7 +876,7 @@ class QSVT:
         #    if meas in self.string_kernel_qsvt_complete:
         #        raise ValueError('Measurement in kernel_qsvt_complete is not allowed, when requesting the quantum state')
         tic = time.time()
-        self.quantum_state = cudaq.get_state(self.kernel_qsvt_complete, **kwargs)
+        self.quantum_state = cudaq.get_state(self.kernel_qsvt_complete, self.angles_poly_oneoverx, **kwargs)
         toc = time.time()
         if self.verbose > 2:
             print('##### \n# Finished state computation in', f'{toc-tic}s \n#####')
@@ -819,7 +892,7 @@ class QSVT:
             if meas in self.string_kernel_qsvt_complete:
                 raise ValueError('Measurement in kernel_qsvt_complete is not allowed, when requesting the quantum state')
         tic = time.time()
-        self.quantum_state = cudaq.get_state_async(self.kernel_qsvt_complete, **kwargs)
+        self.quantum_state = cudaq.get_state_async(self.kernel_qsvt_complete, self.angles_poly_oneoverx, **kwargs)
         toc = time.time()
         if self.verbose > 2:
             print('##### \n# Finished state computation in', f'{toc-tic}s \n#####')
@@ -837,11 +910,11 @@ class QSVT:
             print('Create samples_dict_orig')
         samples_dict_orig = {k:v for k,v in self.samples.items()}
         if self.verbose > 0:
-            print('Create samples_dict_ordered_be')
+            print('  Create samples_dict_ordered_be')
         samples_dict_ordered_be = {bs: samples_dict_orig.get(bs, 0) for bs in tqdm.tqdm(self.bit_strings_big_endian_all, disable=not self.verbose > 0)}# if bs in sampled_bitstrings_be}
         self.samples_dict_ordered_be = samples_dict_ordered_be
         if self.verbose > 0:
-            print('Create samples_dict_ordered_reduced_b_be')
+            print('  Create samples_dict_ordered_reduced_b_be')
         # samples_dict_ordered_reduced_b_be = {bs: sum([val for key, val in samples_dict_ordered_be.items() if key.endswith(bs) and key[0]=='0']) for bs in tqdm.tqdm(self.bit_strings_big_endian_qvector_b, disable=not self.verbose > 0)}
         # Above: implementation from HHL. in comparison, qsvt requires ancilla qubit in state 0 and additional qubit from block encoding also in state 0.
         # Therefore there is no summation for qsvt, i.e. "bs: sum([val ..." would only sum over a list of length 1
@@ -852,7 +925,7 @@ class QSVT:
                 samples_dict_ordered_reduced_b_be = {key[1:]: val for key, val in samples_dict_ordered_reduced_b_be.items() if key[0] == '0'} # additional bit from block encoding of non hermitian matrix must be in state 0
         
         if self.verbose > 0:
-            print('Finished creating samples_dict_ordered_reduced_b_be:\n', samples_dict_ordered_reduced_b_be)
+            print('  Finished creating samples_dict_ordered_reduced_b_be:\n', samples_dict_ordered_reduced_b_be, '\n')
         self.samples_dict_ordered_reduced_b_be = samples_dict_ordered_reduced_b_be
         return None
     
@@ -864,6 +937,9 @@ class QSVT:
         if self.verbose > 0:
             print('Create state_amplitudes_dict_ordered_be')
         state_amplitudes_dict_ordered_be = {tqdm.tqdm(zip(self.bit_strings_big_endian_all, self.quantum_state.amplitudes(self.bit_strings_big_endian_all)), disable=not self.verbose > 0)} 
+        if self.verbose > 0:
+            print('  Finished creating state_amplitudes_dict_ordered_be:\n', state_amplitudes_dict_ordered_be, '\n')
+        
         self.state_amplitudes_dict_ordered_be = state_amplitudes_dict_ordered_be
         return None
 
