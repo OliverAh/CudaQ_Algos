@@ -81,6 +81,7 @@ class QSVT:
         Defines filepaths for:
         - qsvt kernel
         - qsvt angles
+        - A blockencoded unitary
         """
         dir = '.../tmp'
         unique_str = uuid.uuid4()
@@ -97,6 +98,11 @@ class QSVT:
         filename_angles = f'angles_qsvt_from_class_{unique_str}.npy'
         filename_angles = filename_angles.replace('-', '_')
         self.path_angles = pathlib.Path(filepath, filename_angles)
+        
+        filename_Ablock = f'Ablock_from_class_{unique_str}.npy'
+        filename_Ablock = filename_Ablock.replace('-', '_')
+        self.path_Ablock = pathlib.Path(filepath, filename_Ablock)
+        
         return None
 
     def _init_Ab_poisson_first_order_FD(self) -> Tuple[np.ndarray,np.ndarray,float]:
@@ -649,8 +655,18 @@ class QSVT:
         s_qsvt_complete += f'angles = np.load(\'{self.path_angles}\')\n'
         s_qsvt_complete += 'angles = list(angles.flatten())\n\n'
 
-        s_operations_A_block_encoded, operations_A_block_encoded_names = self._construct_string_register_operation_A_block_encoded()
-        s_qsvt_complete += s_operations_A_block_encoded + '\n'
+        s_qsvt_complete += f'A_block_encoded = np.load(\'{self.path_Ablock}\')\n'
+        s_qsvt_complete += f'A_block_encoded_dagger = np.conjugate(A_block_encoded).T\n\n'
+        s_qsvt_complete += f'A_block_encoded = list(A_block_encoded.flatten())\n'
+        s_qsvt_complete += f'A_block_encoded_dagger = list(A_block_encoded_dagger.flatten())\n\n'
+
+        _ops_name = 'Block_A'
+        s_qsvt_complete += 'cudaq.register_operation(\''+_ops_name   +'\', A_block_encoded)\n'
+        adj_ops_name = 'adj_'+_ops_name
+        s_qsvt_complete += 'cudaq.register_operation(\''+adj_ops_name+'\', A_block_encoded_dagger)\n'
+
+        #s_operations_A_block_encoded, operations_A_block_encoded_names = self._construct_string_register_operation_A_block_encoded()
+        #s_qsvt_complete += s_operations_A_block_encoded + '\n'
 
         #if self.verbose > 2:
         #    print('Finished _construct_string_register_operation_A_block_encoded')
@@ -719,11 +735,13 @@ class QSVT:
         
         return None
     
-    def _write_angles_with_kernel(self) -> None:
+    def _write_angles_and_Ablock_with_kernel(self) -> None:
         '''Write the angles used in the kernel to a file. By default the file is removed after import. 
         This can be changed by setting remove_file_after_import=False in import_kernel_qsvt_complete().
         '''
         np.save(file=self.path_angles, arr=self.angles_poly_oneoverx)
+        np.save(file=self.path_Ablock, arr=self._convert_biglittle_endian_unitary(
+                                                    self.A_block_encoded_unitary))
 
     def write_kernel_qsvt_complete(self) -> None:
         '''Write the module containing the kernel to a file. The file is named kernel_qsvt_complete_from_class_<uuid>.py,
@@ -750,7 +768,7 @@ class QSVT:
             # self.filename_kernel_qsvt_complete = filename_kernel
             # self.filenamepath_kernel_qsvt_complete = path_kernel
         
-        self._write_angles_with_kernel()
+        self._write_angles_and_Ablock_with_kernel()
 
         toc = time.time()
 
